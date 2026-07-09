@@ -15,10 +15,13 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
+import android.view.Window;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -79,6 +82,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        enableEdgeToEdge();
         loadSongs();
         showLibrary();
     }
@@ -1009,27 +1013,64 @@ public class MainActivity extends Activity {
 
     private LinearLayout baseRoot() {
         LinearLayout view = column();
-        applySafePadding(view, 0);
+        applySafePadding(view, 0, 0);
         view.setBackgroundColor(getColor(R.color.paper));
         view.setFitsSystemWindows(false);
         view.setOnApplyWindowInsetsListener((target, insets) -> {
+            int topInset;
             int bottomInset;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                topInset = insets.getInsets(WindowInsets.Type.systemBars()).top;
                 bottomInset = Math.max(
                         insets.getInsets(WindowInsets.Type.systemBars()).bottom,
                         insets.getInsets(WindowInsets.Type.ime()).bottom);
             } else {
+                topInset = insets.getSystemWindowInsetTop();
                 bottomInset = insets.getSystemWindowInsetBottom();
             }
-            applySafePadding((LinearLayout) target, bottomInset);
+            applySafePadding((LinearLayout) target, topInset, bottomInset);
             return insets;
         });
         view.requestApplyInsets();
         return view;
     }
 
-    private void applySafePadding(LinearLayout view, int bottomInset) {
-        view.setPadding(dp(18), dp(16), dp(18), dp(28) + bottomInset);
+    private void applySafePadding(LinearLayout view, int topInset, int bottomInset) {
+        view.setPadding(dp(18), dp(12) + topInset, dp(18), dp(28) + bottomInset);
+    }
+
+    private void enableEdgeToEdge() {
+        Window window = getWindow();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
+        } else {
+            window.getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS | WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+            window.setStatusBarColor(getColor(android.R.color.transparent));
+            window.setNavigationBarColor(getColor(android.R.color.transparent));
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            window.getDecorView().setSystemUiVisibility(
+                    window.getDecorView().getSystemUiVisibility()
+                            | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                            | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsAppearance(
+                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                                | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                                | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+            }
+        }
     }
 
     private LinearLayout row() {
