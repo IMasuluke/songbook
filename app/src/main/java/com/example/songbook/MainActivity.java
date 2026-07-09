@@ -87,16 +87,9 @@ public class MainActivity extends Activity {
         screen = Screen.LIBRARY;
         root = baseRoot();
 
-        LinearLayout header = row();
-        TextView title = title("Songbook");
-        TextView count = muted(songs.size() + " songs");
-        LinearLayout titleBlock = column();
-        titleBlock.addView(title);
-        titleBlock.addView(count);
-        header.addView(titleBlock, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        header.addView(button("Settings", false, v -> showSettings()), margins(wrap(), wrap(), 0, 0, 10, 0));
-        header.addView(button("+", true, v -> showEditor(null)));
-        root.addView(header);
+        LinearLayout header = topBar("Songbook", songs.size() + " songs in your book", null, v -> showEditor(null), "+");
+        header.addView(button("Settings", false, v -> showSettings()), 1, margins(wrap(), wrap(), 0, 0, 10, 0));
+        root.addView(header, margins(match(), wrap(), 0, 0, 0, 18));
 
         searchField = input("Search songs, artists, lyrics, or chords");
         searchField.setSingleLine(true);
@@ -106,15 +99,15 @@ public class MainActivity extends Activity {
             filter = text;
             renderSongList();
         }));
-        root.addView(searchField, margins(match(), wrap(), 0, 18, 0, 14));
+        root.addView(searchField, margins(match(), wrap(), 0, 0, 0, 12));
 
-        Button web = button("Find Tabs Online", false, v -> showWebLookup());
-        root.addView(web, margins(match(), wrap(), 0, 0, 0, 12));
+        LinearLayout actions = row();
+        actions.addView(button("Find Tabs", true, v -> showWebLookup()), new LinearLayout.LayoutParams(0, wrap(), 1));
 
         if (hasDraft()) {
-            Button draft = button("Resume Draft", false, v -> showEditor(null));
-            root.addView(draft, margins(match(), wrap(), 0, 0, 0, 12));
+            actions.addView(button("Resume Draft", false, v -> showEditor(null)), margins(wrap(), wrap(), 10, 0, 0, 0));
         }
+        root.addView(actions, margins(match(), wrap(), 0, 0, 0, 16));
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout list = column();
@@ -144,21 +137,27 @@ public class MainActivity extends Activity {
         }
 
         for (Song song : filtered) {
-            LinearLayout card = column();
-            card.setBackgroundResource(R.drawable.bg_card);
-            card.setPadding(dp(16), dp(14), dp(16), dp(14));
+            LinearLayout card = card();
             card.setClickable(true);
             card.setOnClickListener(v -> showSong(song));
 
             TextView songTitle = subtitle(song.title);
             TextView artist = muted(song.artist.isEmpty() ? "Unknown artist" : song.artist);
-            TextView key = badge(song.key.isEmpty() ? "No key set" : "Key " + song.key);
             TextView preview = muted(preview(song.body));
 
             card.addView(songTitle);
-            card.addView(artist, margins(match(), wrap(), 0, 2, 0, 8));
-            card.addView(key, margins(wrap(), wrap(), 0, 0, 0, 10));
-            card.addView(preview);
+            card.addView(artist, margins(match(), wrap(), 0, 2, 0, 10));
+
+            LinearLayout meta = row();
+            meta.addView(badge(song.key.isEmpty() ? "No key set" : "Key " + song.key), margins(wrap(), wrap(), 0, 0, 8, 0));
+            if (!song.sourceUrl.isEmpty()) {
+                meta.addView(badge("Source"), margins(wrap(), wrap(), 0, 0, 8, 0));
+            }
+            if (!song.recordings.isEmpty()) {
+                meta.addView(badge(song.recordings.size() + " rec"), margins(wrap(), wrap(), 0, 0, 8, 0));
+            }
+            card.addView(meta, margins(match(), wrap(), 0, 0, 0, 10));
+            card.addView(preview, margins(match(), wrap(), 0, 0, 0, 0));
             songList.addView(card, margins(match(), wrap(), 0, 0, 0, 12));
         }
     }
@@ -167,17 +166,13 @@ public class MainActivity extends Activity {
         screen = Screen.SETTINGS;
         root = baseRoot();
 
-        LinearLayout header = row();
-        header.addView(button("<", false, v -> showLibrary()));
-        header.addView(title("Settings"), new LinearLayout.LayoutParams(0, wrap(), 1));
+        LinearLayout header = topBar("Settings", "Backup and app data", v -> showLibrary(), null, "");
         root.addView(header, margins(match(), wrap(), 0, 0, 0, 18));
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout content = column();
 
-        LinearLayout backup = column();
-        backup.setBackgroundResource(R.drawable.bg_card);
-        backup.setPadding(dp(16), dp(14), dp(16), dp(14));
+        LinearLayout backup = panel();
         backup.addView(subtitle("Google Drive Backup"));
         backup.addView(muted("Backups include songs, source links, drafts, and voice recordings."), margins(match(), wrap(), 0, 4, 0, 14));
         backup.addView(button("Back Up to Google Drive", true, v -> chooseBackupDestination()), margins(match(), wrap(), 0, 0, 0, 10));
@@ -206,19 +201,19 @@ public class MainActivity extends Activity {
         screen = Screen.DETAIL;
         root = baseRoot();
 
-        LinearLayout header = row();
-        header.addView(button("<", false, v -> leaveSong(song, () -> showLibrary())));
-        LinearLayout titleBlock = column();
-        titleBlock.addView(title(song.title));
-        titleBlock.addView(muted(song.artist.isEmpty() ? "Unknown artist" : song.artist));
-        header.addView(titleBlock, new LinearLayout.LayoutParams(0, wrap(), 1));
-        header.addView(button("Edit", true, v -> leaveSong(song, () -> showEditor(song))));
-        root.addView(header);
+        LinearLayout header = topBar(song.title, song.artist.isEmpty() ? "Unknown artist" : song.artist, v -> leaveSong(song, () -> showLibrary()), v -> leaveSong(song, () -> showEditor(song)), "Edit");
+        root.addView(header, margins(match(), wrap(), 0, 0, 0, 12));
 
         LinearLayout meta = row();
-        meta.addView(badge(song.key.isEmpty() ? "No key set" : "Key " + song.key));
+        meta.addView(badge(song.key.isEmpty() ? "No key set" : "Key " + song.key), margins(wrap(), wrap(), 0, 0, 8, 0));
         if (!song.notes.isEmpty()) {
-            meta.addView(badge(song.notes));
+            meta.addView(badge(song.notes), margins(wrap(), wrap(), 0, 0, 8, 0));
+        }
+        if (!song.sourceUrl.isEmpty()) {
+            meta.addView(badge("Source"), margins(wrap(), wrap(), 0, 0, 8, 0));
+        }
+        if (!song.recordings.isEmpty()) {
+            meta.addView(badge(song.recordings.size() + " recordings"), margins(wrap(), wrap(), 0, 0, 8, 0));
         }
         root.addView(meta, margins(match(), wrap(), 0, 12, 0, 12));
 
@@ -227,20 +222,26 @@ public class MainActivity extends Activity {
         content.addView(recordingSection(song), margins(match(), wrap(), 0, 0, 0, 18));
 
         if (!song.sourceUrl.isEmpty()) {
+            LinearLayout sourcePanel = card();
+            sourcePanel.addView(sectionTitle("Source"));
             LinearLayout sourceActions = row();
             sourceActions.addView(button("Open Source", true, v -> leaveSong(song, () -> showWebLookup(song.sourceUrl))), new LinearLayout.LayoutParams(0, wrap(), 1));
             sourceActions.addView(button("Edit Link", false, v -> leaveSong(song, () -> showEditor(song))), margins(wrap(), wrap(), 10, 0, 0, 0));
-            content.addView(sourceActions, margins(match(), wrap(), 0, 0, 0, 12));
+            sourcePanel.addView(sourceActions, margins(match(), wrap(), 0, 10, 0, 10));
 
             TextView source = muted(song.sourceUrl);
             source.setSingleLine(false);
-            content.addView(source, margins(match(), wrap(), 0, 0, 0, 18));
+            sourcePanel.addView(source);
+            content.addView(sourcePanel, margins(match(), wrap(), 0, 0, 0, 18));
         }
+        LinearLayout lyricPanel = card();
+        lyricPanel.addView(sectionTitle("Lyrics & Chords"), margins(match(), wrap(), 0, 0, 0, 10));
         TextView lyrics = body(song.body.isEmpty() ? "No lyrics or chords yet." : song.body);
         lyrics.setTypeface(Typeface.MONOSPACE);
         lyrics.setTextSize(17);
         lyrics.setLineSpacing(dp(2), 1.0f);
-        content.addView(lyrics);
+        lyricPanel.addView(lyrics);
+        content.addView(lyricPanel);
         scroll.addView(content);
         root.addView(scroll, new LinearLayout.LayoutParams(match(), 0, 1));
         setContentView(root);
@@ -262,55 +263,61 @@ public class MainActivity extends Activity {
         final Song song = editableSong;
         root = baseRoot();
 
-        LinearLayout header = row();
-        header.addView(button("<", false, v -> {
+        LinearLayout header = topBar(existing == null ? "New Song" : "Edit Song", existing == null ? "Drafts save automatically" : "Update song details", v -> {
             hideKeyboard();
             if (existing == null) {
                 showLibrary();
             } else {
                 showSong(existing);
             }
-        }));
-        header.addView(title(existing == null ? "New Song" : "Edit Song"), new LinearLayout.LayoutParams(0, wrap(), 1));
-        root.addView(header);
+        }, null, "");
+        root.addView(header, margins(match(), wrap(), 0, 0, 0, 18));
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout form = column();
+        LinearLayout info = card();
+        info.addView(sectionTitle("Song Info"), margins(match(), wrap(), 0, 0, 0, 10));
 
         EditText titleInput = input("Title");
         titleInput.setText(song.title);
-        form.addView(label("Title"));
-        form.addView(titleInput, margins(match(), wrap(), 0, 4, 0, 12));
+        info.addView(label("Title"));
+        info.addView(titleInput, margins(match(), wrap(), 0, 4, 0, 12));
 
         EditText artistInput = input("Artist");
         artistInput.setText(song.artist);
-        form.addView(label("Artist"));
-        form.addView(artistInput, margins(match(), wrap(), 0, 4, 0, 12));
+        info.addView(label("Artist"));
+        info.addView(artistInput, margins(match(), wrap(), 0, 4, 0, 12));
 
         EditText keyInput = input("Key, capo, or tuning");
         keyInput.setText(song.key);
-        form.addView(label("Key / Capo / Tuning"));
-        form.addView(keyInput, margins(match(), wrap(), 0, 4, 0, 12));
+        info.addView(label("Key / Capo / Tuning"));
+        info.addView(keyInput, margins(match(), wrap(), 0, 4, 0, 0));
+        form.addView(info, margins(match(), wrap(), 0, 0, 0, 12));
 
+        LinearLayout lyricEditor = card();
+        lyricEditor.addView(sectionTitle("Lyrics & Chords"), margins(match(), wrap(), 0, 0, 0, 10));
         EditText bodyInput = input("Paste or write lyrics with chords here");
         bodyInput.setText(song.body);
         bodyInput.setGravity(Gravity.TOP | Gravity.START);
         bodyInput.setMinLines(14);
         bodyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         bodyInput.setTypeface(Typeface.MONOSPACE);
-        form.addView(label("Lyrics and Chords"));
-        form.addView(bodyInput, margins(match(), wrap(), 0, 4, 0, 12));
+        lyricEditor.addView(bodyInput);
+        form.addView(lyricEditor, margins(match(), wrap(), 0, 0, 0, 12));
 
+        LinearLayout extras = card();
+        extras.addView(sectionTitle("Source & Notes"), margins(match(), wrap(), 0, 0, 0, 10));
         EditText notesInput = input("Notes, tempo, arrangement");
         notesInput.setText(song.notes);
-        form.addView(label("Notes"));
-        form.addView(notesInput, margins(match(), wrap(), 0, 4, 0, 12));
+        extras.addView(label("Notes"));
+        extras.addView(notesInput, margins(match(), wrap(), 0, 4, 0, 12));
 
         EditText sourceInput = input("https://...");
         sourceInput.setText(song.sourceUrl);
         sourceInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        form.addView(label("Source Link"));
-        form.addView(sourceInput, margins(match(), wrap(), 0, 4, 0, 18));
+        extras.addView(label("Source Link"));
+        extras.addView(sourceInput, margins(match(), wrap(), 0, 4, 0, 0));
+        form.addView(extras, margins(match(), wrap(), 0, 0, 0, 18));
 
         LinearLayout actions = row();
         Button save = button("Save Song", true, v -> {
@@ -336,7 +343,7 @@ public class MainActivity extends Activity {
         actions.addView(save, new LinearLayout.LayoutParams(0, wrap(), 1));
 
         if (existing != null) {
-            Button delete = button("Delete", false, v -> confirmDelete(existing));
+            Button delete = dangerButton("Delete", v -> confirmDelete(existing));
             actions.addView(delete, margins(wrap(), wrap(), 10, 0, 0, 0));
         }
         form.addView(actions);
@@ -389,14 +396,12 @@ public class MainActivity extends Activity {
         screen = Screen.WEB;
         root = baseRoot();
 
-        LinearLayout header = row();
-        header.addView(button("<", false, v -> showLibrary()));
-        header.addView(title("Find Tabs"), new LinearLayout.LayoutParams(0, wrap(), 1));
-        root.addView(header);
+        LinearLayout header = topBar("Find Tabs", "Search online, then save your own copy", v -> showLibrary(), null, "");
+        root.addView(header, margins(match(), wrap(), 0, 0, 0, 14));
 
         EditText query = input("Song, artist, or tab URL");
         query.setSingleLine(true);
-        root.addView(query, margins(match(), wrap(), 0, 12, 0, 8));
+        root.addView(query, margins(match(), wrap(), 0, 0, 0, 8));
 
         LinearLayout actions = row();
         actions.addView(button("Search Tabs", true, v -> loadTabSearch(query)), new LinearLayout.LayoutParams(0, wrap(), 1));
@@ -707,10 +712,8 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout recordingSection(Song song) {
-        LinearLayout section = column();
-        TextView heading = subtitle("Voice Recordings");
-        heading.setTextSize(18);
-        section.addView(heading, margins(match(), wrap(), 0, 0, 0, 8));
+        LinearLayout section = card();
+        section.addView(sectionTitle("Voice Recordings"), margins(match(), wrap(), 0, 0, 0, 10));
 
         LinearLayout controls = row();
         boolean recordingThisSong = recorder != null && recordingSong == song;
@@ -733,9 +736,9 @@ public class MainActivity extends Activity {
 
         for (int i = song.recordings.size() - 1; i >= 0; i--) {
             Recording recording = song.recordings.get(i);
-            LinearLayout row = row();
-            row.setBackgroundResource(R.drawable.bg_card);
-            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            LinearLayout row = panel();
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
             LinearLayout titleBlock = column();
             titleBlock.addView(body(recordingDisplayName(recording, i)));
             titleBlock.addView(muted(formatTime(recording.createdAt)));
@@ -749,7 +752,7 @@ public class MainActivity extends Activity {
                 }
             }), margins(wrap(), wrap(), 8, 0, 0, 0));
             row.addView(button("Rename", false, v -> promptRenameRecording(song, recording)), margins(wrap(), wrap(), 8, 0, 0, 0));
-            row.addView(button("Delete", false, v -> confirmDeleteRecording(song, recording)), margins(wrap(), wrap(), 8, 0, 0, 0));
+            row.addView(dangerButton("Delete", v -> confirmDeleteRecording(song, recording)), margins(wrap(), wrap(), 8, 0, 0, 0));
             section.addView(row, margins(match(), wrap(), 0, 0, 0, 8));
         }
         return section;
@@ -1026,7 +1029,7 @@ public class MainActivity extends Activity {
     }
 
     private void applySafePadding(LinearLayout view, int bottomInset) {
-        view.setPadding(dp(18), dp(18), dp(18), dp(24) + bottomInset);
+        view.setPadding(dp(18), dp(16), dp(18), dp(28) + bottomInset);
     }
 
     private LinearLayout row() {
@@ -1046,7 +1049,7 @@ public class MainActivity extends Activity {
         TextView view = new TextView(this);
         view.setText(text);
         view.setTextColor(getColor(R.color.ink));
-        view.setTextSize(28);
+        view.setTextSize(30);
         view.setTypeface(Typeface.DEFAULT_BOLD);
         return view;
     }
@@ -1077,7 +1080,10 @@ public class MainActivity extends Activity {
     }
 
     private TextView label(String text) {
-        TextView view = muted(text);
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextColor(getColor(R.color.accent_dark));
+        view.setTextSize(12);
         view.setTypeface(Typeface.DEFAULT_BOLD);
         return view;
     }
@@ -1088,7 +1094,7 @@ public class MainActivity extends Activity {
         view.setTextColor(getColor(R.color.accent_dark));
         view.setTextSize(13);
         view.setTypeface(Typeface.DEFAULT_BOLD);
-        view.setBackgroundResource(R.drawable.bg_button_secondary);
+        view.setBackgroundResource(R.drawable.bg_badge);
         return view;
     }
 
@@ -1099,6 +1105,7 @@ public class MainActivity extends Activity {
         view.setHintTextColor(getColor(R.color.muted));
         view.setTextSize(16);
         view.setBackgroundResource(R.drawable.bg_input);
+        view.setMinHeight(dp(48));
         return view;
     }
 
@@ -1107,10 +1114,55 @@ public class MainActivity extends Activity {
         view.setText(text);
         view.setAllCaps(false);
         view.setTextSize(15);
+        view.setTypeface(Typeface.DEFAULT_BOLD);
         view.setTextColor(primary ? getColor(android.R.color.white) : getColor(R.color.ink));
         view.setBackgroundResource(primary ? R.drawable.bg_button_primary : R.drawable.bg_button_secondary);
         view.setMinHeight(dp(44));
         view.setOnClickListener(listener);
+        return view;
+    }
+
+    private Button dangerButton(String text, View.OnClickListener listener) {
+        Button view = button(text, false, listener);
+        view.setTextColor(getColor(R.color.danger));
+        view.setBackgroundResource(R.drawable.bg_button_danger);
+        return view;
+    }
+
+    private LinearLayout topBar(String screenTitle, String subtitle, View.OnClickListener back, View.OnClickListener primaryAction, String primaryLabel) {
+        LinearLayout header = row();
+        if (back != null) {
+            header.addView(button("<", false, back), margins(wrap(), wrap(), 0, 0, 10, 0));
+        }
+        LinearLayout titleBlock = column();
+        titleBlock.addView(title(screenTitle));
+        if (subtitle != null && !subtitle.isEmpty()) {
+            titleBlock.addView(muted(subtitle));
+        }
+        header.addView(titleBlock, new LinearLayout.LayoutParams(0, wrap(), 1));
+        if (primaryAction != null) {
+            header.addView(button(primaryLabel, true, primaryAction));
+        }
+        return header;
+    }
+
+    private LinearLayout card() {
+        LinearLayout view = column();
+        view.setBackgroundResource(R.drawable.bg_card);
+        view.setPadding(dp(16), dp(14), dp(16), dp(14));
+        return view;
+    }
+
+    private LinearLayout panel() {
+        LinearLayout view = column();
+        view.setBackgroundResource(R.drawable.bg_panel);
+        view.setPadding(dp(16), dp(14), dp(16), dp(14));
+        return view;
+    }
+
+    private TextView sectionTitle(String text) {
+        TextView view = label(text);
+        view.setTextSize(13);
         return view;
     }
 
