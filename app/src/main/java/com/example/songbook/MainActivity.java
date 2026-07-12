@@ -160,7 +160,7 @@ public class MainActivity extends Activity {
         screen = Screen.LIBRARY;
         root = baseRoot();
 
-        LinearLayout header = topBar("Songbook", librarySubtitle(), null, v -> showEditor(null), "+");
+        LinearLayout header = topBar("Prestigissimo", null, null, v -> showEditor(null), "+");
         header.addView(button("Settings", false, v -> showSettings()), 1, margins(wrap(), wrap(), 0, 0, 10, 0));
         root.addView(header, margins(match(), wrap(), 0, 0, 0, 18));
 
@@ -174,19 +174,37 @@ public class MainActivity extends Activity {
         }));
         root.addView(searchField, margins(match(), wrap(), 0, 0, 0, 12));
 
-        LinearLayout actions = row();
-        actions.addView(button("Find Tabs", true, v -> showWebLookup()), new LinearLayout.LayoutParams(0, wrap(), 1));
-
-        if (hasDraft()) {
-            actions.addView(button("Resume Draft", false, v -> showEditor(null)), margins(wrap(), wrap(), 10, 0, 0, 0));
-        }
-        root.addView(actions, margins(match(), wrap(), 0, 0, 0, 16));
+        LinearLayout tabs = row();
+        Button allTab = tabButton("All", true, v -> {
+            filter = "";
+            renderSongList();
+        });
+        Button favoritesTab = tabButton("Favorites", false, v -> {
+        });
+        Button setlistsTab = tabButton("Setlists", false, v -> {
+        });
+        tabs.addView(allTab, margins(wrap(), wrap(), 0, 0, 8, 0));
+        tabs.addView(favoritesTab, margins(wrap(), wrap(), 0, 0, 8, 0));
+        tabs.addView(setlistsTab, margins(wrap(), wrap(), 0, 0, 0, 0));
+        root.addView(tabs, margins(match(), wrap(), 0, 0, 0, 16));
 
         ScrollView scroll = new ScrollView(this);
+        LinearLayout content = column();
+
+        LinearLayout recentSection = column();
+        TextView recentTitle = muted("RECENTLY PLAYED");
+        recentTitle.setTextSize(11);
+        recentTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        recentSection.addView(recentTitle, margins(match(), wrap(), 0, 0, 0, 10));
+
         LinearLayout list = column();
         songList = list;
         list.setId(View.generateViewId());
-        scroll.addView(list);
+
+        recentSection.addView(list, margins(match(), wrap(), 0, 0, 0, 0));
+        content.addView(recentSection, margins(match(), wrap(), 0, 0, 0, 0));
+
+        scroll.addView(content);
         root.addView(scroll, new LinearLayout.LayoutParams(match(), 0, 1));
         setContentView(root);
         renderSongList();
@@ -404,7 +422,9 @@ public class MainActivity extends Activity {
         root.addView(header, margins(match(), wrap(), 0, 0, 0, 12));
 
         LinearLayout meta = row();
-        meta.addView(badge(song.key.isEmpty() ? "No key set" : "Key " + song.key), margins(wrap(), wrap(), 0, 0, 8, 0));
+        if (!song.key.isEmpty()) {
+            meta.addView(badge("Key " + song.key), margins(wrap(), wrap(), 0, 0, 8, 0));
+        }
         if (!song.notes.isEmpty()) {
             meta.addView(badge(song.notes), margins(wrap(), wrap(), 0, 0, 8, 0));
         }
@@ -471,51 +491,89 @@ public class MainActivity extends Activity {
         final Song song = editableSong;
         root = baseRoot();
 
-        LinearLayout header = topBar(existing == null ? "New Song" : "Edit Song", existing == null ? "Drafts save automatically" : "Update song details", v -> {
+        LinearLayout headerContent = row();
+        Button cancelBtn = button("Cancel", false, v -> {
             hideKeyboard();
             if (existing == null) {
                 showLibrary();
             } else {
                 showSong(existing);
             }
-        }, null, "");
-        root.addView(header, margins(match(), wrap(), 0, 0, 0, 18));
+        });
+        cancelBtn.setTextColor(getColor(R.color.accent));
+        TextView headerTitle = title("Edit song");
+        Button saveBtn = button("Save", true, null);
+        saveBtn.setTextColor(getColor(R.color.accent));
+
+        headerContent.addView(cancelBtn, margins(wrap(), wrap(), 0, 0, 0, 0));
+        headerContent.addView(headerTitle, new LinearLayout.LayoutParams(0, wrap(), 1));
+        headerContent.addView(saveBtn, margins(wrap(), wrap(), 10, 0, 0, 0));
+        root.addView(headerContent, margins(match(), wrap(), 0, 0, 0, 18));
+
+        LinearLayout draftStatus = row();
+        TextView draftStatusText = muted("✓ Draft saved");
+        draftStatus.addView(draftStatusText);
+        root.addView(draftStatus, margins(match(), wrap(), 0, 0, 0, 18));
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout form = column();
-        LinearLayout info = card();
-        info.addView(sectionTitle("Song Info"), margins(match(), wrap(), 0, 0, 0, 10));
 
         EditText titleInput = input("Title");
         titleInput.setText(song.title);
-        info.addView(label("Title"));
-        info.addView(titleInput, margins(match(), wrap(), 0, 4, 0, 12));
+        form.addView(label("Title"), margins(match(), wrap(), 0, 0, 0, 4));
+        form.addView(titleInput, margins(match(), wrap(), 0, 0, 0, 12));
 
         EditText artistInput = input("Artist");
         artistInput.setText(song.artist);
-        info.addView(label("Artist"));
-        info.addView(artistInput, margins(match(), wrap(), 0, 4, 0, 12));
+        form.addView(label("Artist"), margins(match(), wrap(), 0, 0, 0, 4));
+        form.addView(artistInput, margins(match(), wrap(), 0, 0, 0, 12));
 
-        EditText keyInput = input("Key, capo, or tuning");
+        EditText keyInput = input("Key");
         keyInput.setText(song.key);
-        info.addView(label("Key / Capo / Tuning"));
-        info.addView(keyInput, margins(match(), wrap(), 0, 4, 0, 0));
-        form.addView(info, margins(match(), wrap(), 0, 0, 0, 12));
+        form.addView(label("Key"), margins(match(), wrap(), 0, 0, 0, 4));
+        form.addView(keyInput, margins(match(), wrap(), 0, 0, 0, 12));
 
-        LinearLayout lyricEditor = card();
-        lyricEditor.addView(sectionTitle("Lyrics & Chords"), margins(match(), wrap(), 0, 0, 0, 10));
+        LinearLayout keyControls = row();
+        EditText capoInput = input("−");
+        capoInput.setText("-");
+        EditText tuningInput = input("Standard");
+        tuningInput.setText("Standard");
+        keyControls.addView(capoInput, weightedMargins(1, 0, 0, 8, 0));
+        keyControls.addView(tuningInput, weightedMargins(1, 0, 0, 0, 0));
+        form.addView(label("Capo / Tuning"), margins(match(), wrap(), 0, 12, 0, 4));
+        form.addView(keyControls, margins(match(), wrap(), 0, 0, 0, 12));
+
+        LinearLayout notesSection = row();
+        LinearLayout chordButtons = row();
+        String[] chords = {"G", "C", "D", "Em", "Am"};
+        for (String chord : chords) {
+            Button chordBtn = button(chord, false, v -> {});
+            chordBtn.setMinHeight(dp(40));
+            chordBtn.setPadding(dp(8), 0, dp(8), 0);
+            chordButtons.addView(chordBtn, weightedMargins(1, 4, 0, 4, 0));
+        }
+        Button addChordBtn = button("+ Chord", true, v -> {});
+        addChordBtn.setMinHeight(dp(40));
+        chordButtons.addView(addChordBtn, weightedMargins(1, 4, 0, 0, 0));
+        form.addView(label("Lyrics & Chords"), margins(match(), wrap(), 0, 12, 0, 4));
+
+        LinearLayout monoToggle = row();
+        TextView monoLabel = muted("Monospace");
+        monoToggle.addView(monoLabel, new LinearLayout.LayoutParams(0, wrap(), 1));
+        form.addView(chordButtons, margins(match(), wrap(), 0, 0, 0, 12));
+
         boolean googleDocManaged = existing != null && isGoogleDocManaged(song);
-        EditText bodyInput = input("Add or edit lyrics here, then use Add Chords");
+        EditText bodyInput = input("Add or edit lyrics here");
         bodyInput.setText(song.body);
         bodyInput.setGravity(Gravity.TOP | Gravity.START);
         bodyInput.setMinLines(14);
         bodyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         bodyInput.setTypeface(Typeface.MONOSPACE);
         if (googleDocManaged) {
-            lyricEditor.addView(muted("This song has a Google Doc. Local lyric edits are kept in Songbook and will not overwrite the doc automatically."), margins(match(), wrap(), 0, 0, 0, 10));
-            lyricEditor.addView(button("Open Live Doc", true, v -> openGoogleDoc(song)), margins(match(), wrap(), 0, 0, 0, 10));
+            form.addView(muted("This song has a Google Doc. Local lyric edits are kept in Songbook and will not overwrite the doc automatically."), margins(match(), wrap(), 0, 0, 0, 10));
+            form.addView(button("Open Live Doc", true, v -> openGoogleDoc(song)), margins(match(), wrap(), 0, 0, 0, 10));
         }
-        lyricEditor.addView(bodyInput);
+        form.addView(bodyInput, margins(match(), wrap(), 0, 0, 0, 12));
         LinearLayout chordMode = column();
         chordMode.setVisibility(View.GONE);
         final Button[] chordModeButton = new Button[1];
@@ -527,26 +585,37 @@ public class MainActivity extends Activity {
             clearChordAnchorsIfBodyChanged(song);
             showChordBuilder(song, bodyInput, chordMode, chordModeButton[0]);
         });
-        lyricEditor.addView(chordModeButton[0], margins(match(), wrap(), 0, 10, 0, 0));
-        lyricEditor.addView(chordMode, margins(match(), wrap(), 0, 10, 0, 0));
-        form.addView(lyricEditor, margins(match(), wrap(), 0, 0, 0, 12));
+        form.addView(chordModeButton[0], margins(match(), wrap(), 0, 0, 0, 0));
+        form.addView(chordMode, margins(match(), wrap(), 0, 10, 0, 0));
 
-        LinearLayout extras = card();
-        extras.addView(sectionTitle("Source & Notes"), margins(match(), wrap(), 0, 0, 0, 10));
         EditText notesInput = input("Notes, tempo, arrangement");
         notesInput.setText(song.notes);
-        extras.addView(label("Notes"));
-        extras.addView(notesInput, margins(match(), wrap(), 0, 4, 0, 12));
+        form.addView(label("Notes"), margins(match(), wrap(), 0, 12, 0, 4));
+        form.addView(notesInput, margins(match(), wrap(), 0, 0, 0, 12));
 
         EditText sourceInput = input("https://...");
         sourceInput.setText(song.sourceUrl);
         sourceInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        extras.addView(label("Source Link"));
-        extras.addView(sourceInput, margins(match(), wrap(), 0, 4, 0, 0));
-        form.addView(extras, margins(match(), wrap(), 0, 0, 0, 18));
+        form.addView(label("Source Link"), margins(match(), wrap(), 0, 12, 0, 4));
+        form.addView(sourceInput, margins(match(), wrap(), 0, 0, 0, 18));
 
-        LinearLayout actions = row();
-        Button save = button("Save Song", true, v -> {
+        if (existing != null) {
+            Button delete = dangerButton("Delete", v -> confirmDelete(existing));
+            form.addView(delete, margins(match(), wrap(), 0, 0, 0, 0));
+        }
+
+        if (existing == null) {
+            TextChange draftSaver = ignored -> saveDraftFromInputs(song, titleInput, artistInput, keyInput, bodyInput, notesInput, sourceInput);
+            titleInput.addTextChangedListener(simpleTextWatcher(draftSaver));
+            artistInput.addTextChangedListener(simpleTextWatcher(draftSaver));
+            keyInput.addTextChangedListener(simpleTextWatcher(draftSaver));
+            bodyInput.addTextChangedListener(simpleTextWatcher(draftSaver));
+            notesInput.addTextChangedListener(simpleTextWatcher(draftSaver));
+            sourceInput.addTextChangedListener(simpleTextWatcher(draftSaver));
+            saveDraftFromInputs(song, titleInput, artistInput, keyInput, bodyInput, notesInput, sourceInput);
+        }
+
+        saveBtn.setOnClickListener(v -> {
             String newTitle = titleInput.getText().toString().trim();
             if (newTitle.isEmpty()) {
                 Toast.makeText(this, "Add a title before saving.", Toast.LENGTH_SHORT).show();
@@ -562,24 +631,6 @@ public class MainActivity extends Activity {
             hideKeyboard();
             showSong(song);
         });
-        actions.addView(save, new LinearLayout.LayoutParams(0, wrap(), 1));
-
-        if (existing != null) {
-            Button delete = dangerButton("Delete", v -> confirmDelete(existing));
-            actions.addView(delete, margins(wrap(), wrap(), 10, 0, 0, 0));
-        }
-        form.addView(actions);
-
-        if (existing == null) {
-            TextChange draftSaver = ignored -> saveDraftFromInputs(song, titleInput, artistInput, keyInput, bodyInput, notesInput, sourceInput);
-            titleInput.addTextChangedListener(simpleTextWatcher(draftSaver));
-            artistInput.addTextChangedListener(simpleTextWatcher(draftSaver));
-            keyInput.addTextChangedListener(simpleTextWatcher(draftSaver));
-            bodyInput.addTextChangedListener(simpleTextWatcher(draftSaver));
-            notesInput.addTextChangedListener(simpleTextWatcher(draftSaver));
-            sourceInput.addTextChangedListener(simpleTextWatcher(draftSaver));
-            saveDraftFromInputs(song, titleInput, artistInput, keyInput, bodyInput, notesInput, sourceInput);
-        }
 
         scroll.addView(form);
         root.addView(scroll, new LinearLayout.LayoutParams(match(), 0, 1));
@@ -2259,6 +2310,25 @@ public class MainActivity extends Activity {
         Button view = button(text, false, listener);
         view.setTextColor(getColor(R.color.danger));
         view.setBackgroundResource(R.drawable.bg_button_danger);
+        return view;
+    }
+
+    private Button tabButton(String text, boolean active, View.OnClickListener listener) {
+        Button view = new Button(this);
+        view.setText(text);
+        view.setAllCaps(false);
+        view.setTextSize(14);
+        view.setTypeface(Typeface.DEFAULT_BOLD);
+        if (active) {
+            view.setTextColor(getColor(android.R.color.white));
+            view.setBackgroundResource(R.drawable.bg_button_primary);
+        } else {
+            view.setTextColor(getColor(R.color.ink));
+            view.setBackgroundResource(R.drawable.bg_button_secondary);
+        }
+        view.setMinHeight(dp(36));
+        view.setPadding(dp(16), 0, dp(16), 0);
+        view.setOnClickListener(listener);
         return view;
     }
 

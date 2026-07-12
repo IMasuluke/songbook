@@ -1,12 +1,12 @@
 <resources>
-    <color name="paper">#FFF4E2</color>
-    <color name="ink">#2B211C</color>
-    <color name="muted">#7A665B</color>
-    <color name="line">#E7C8A8</color>
-    <color name="surface">#FFFCF7</color>
-    <color name="panel">#FFE6BD</color>
-    <color name="accent">#C84B22</color>
-    <color name="accent_dark">#8F2F1C</color>
-    <color name="warm">#E6A527</color>
-    <color name="danger">#A7352A</color>
+    <color name="paper">#1a1a1a</color>
+    <color name="ink">#ffffff</color>
+    <color name="muted">#888888</color>
+    <color name="line">#333333</color>
+    <color name="surface">#0f0f0f</color>
+    <color name="panel">#1f1f1f</color>
+    <color name="accent">#E85D3F</color>
+    <color name="accent_dark">#d04a2e</color>
+    <color name="warm">#E85D3F</color>
+    <color name="danger">#EF5350</color>
 </resources>
