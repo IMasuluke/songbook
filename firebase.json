@@ -1,0 +1,10 @@
+{
+  "auth": {
+    "providers": {
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "Prestissimo",
+        "supportEmail": "masuluke.itu@gmail.com"
+      }
+    }
+  }
+}

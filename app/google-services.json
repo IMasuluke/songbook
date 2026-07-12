@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "371284360331",
+    "project_id": "prestissimo-2a02c",
+    "storage_bucket": "prestissimo-2a02c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:371284360331:android:30c6a3c85f91e5b2f0e88e",
+        "android_client_info": {
+          "package_name": "com.example.songbook"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "371284360331-0j5s2ng37g66mji1v9d7lv0ji9plf4ro.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.songbook",
+            "certificate_hash": "dd13aa79bbb0a4c5fe3082906e3a6ccbbdb8cc42"
+          }
+        },
+        {
+          "client_id": "371284360331-7o3e2ac8p8maicdioide5ls71ffq017a.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDp5DMB4Ey5MvrBCqv-McsDucc8bQUmhqA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "371284360331-7o3e2ac8p8maicdioide5ls71ffq017a.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
