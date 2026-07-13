@@ -2125,7 +2125,7 @@ private fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifie
 
 @Composable
 private fun ReaderControl(symbol: String, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(horizontalAlignment = Alignment.CenterVertically, modifier = modifier) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
         SecondaryButton(text = symbol, onClick = onClick)
         Spacer(modifier = Modifier.height(6.dp))
         Text(label, color = AppColors.Muted, fontSize = 11.sp)
