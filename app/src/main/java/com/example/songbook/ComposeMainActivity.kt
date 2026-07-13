@@ -155,6 +155,15 @@ private fun SongbookApp(
     var pendingRecordingSongId by remember { mutableStateOf<String?>(null) }
     var renameRecordingTarget by remember { mutableStateOf<RecordingTarget?>(null) }
     var deleteRecordingTarget by remember { mutableStateOf<RecordingTarget?>(null) }
+    var showAddSongFlow by rememberSaveable { mutableStateOf(false) }
+    var addSongStep by rememberSaveable { mutableIntStateOf(0) }
+    var selectedAddPath by rememberSaveable { mutableStateOf("") }
+    var tempAddSongTitle by rememberSaveable { mutableStateOf("") }
+    var tempAddSongArtist by rememberSaveable { mutableStateOf("") }
+    var tempAddSongKey by rememberSaveable { mutableStateOf("") }
+    var tempAddSongUrl by rememberSaveable { mutableStateOf("") }
+    var tempAddSongText by rememberSaveable { mutableStateOf("") }
+    var selectedAddSongSource by rememberSaveable { mutableStateOf("") }
 
     fun releaseRecorder() {
         recorder?.release()
@@ -337,7 +346,7 @@ private fun SongbookApp(
             Screen.Library -> LibraryScreen(
                 songs = songs,
                 onOpenSong = { screen = Screen.Detail(it) },
-                onNewSong = { screen = Screen.Editor(null, null) },
+                onNewSong = { showAddSongFlow = true },
                 onSettings = { screen = Screen.Settings }
             )
 
@@ -486,6 +495,151 @@ private fun SongbookApp(
                 }
             )
         }
+    }
+
+    if (showAddSongFlow) {
+        AddSongFlowModal(
+            step = addSongStep,
+            selectedPath = selectedAddPath,
+            tempTitle = tempAddSongTitle,
+            tempArtist = tempAddSongArtist,
+            tempKey = tempAddSongKey,
+            tempUrl = tempAddSongUrl,
+            tempText = tempAddSongText,
+            selectedSource = selectedAddSongSource,
+            onDismiss = {
+                showAddSongFlow = false
+                addSongStep = 0
+                selectedAddPath = ""
+                tempAddSongTitle = ""
+                tempAddSongArtist = ""
+                tempAddSongKey = ""
+                tempAddSongUrl = ""
+                tempAddSongText = ""
+                selectedAddSongSource = ""
+            },
+            onStep1Choice = { choice ->
+                selectedAddPath = choice
+                addSongStep = 1
+            },
+            onStep2AChoice = { source ->
+                selectedAddSongSource = source
+                addSongStep = 2
+            },
+            onStep2BChoice = { source ->
+                selectedAddSongSource = source
+                addSongStep = 2
+            },
+            onTitleChange = { tempAddSongTitle = it },
+            onArtistChange = { tempAddSongArtist = it },
+            onKeyChange = { tempAddSongKey = it },
+            onUrlChange = { tempAddSongUrl = it },
+            onTextChange = { tempAddSongText = it },
+            onCreateBlank = {
+                val newSong = Song(
+                    id = java.util.UUID.randomUUID().toString(),
+                    title = tempAddSongTitle.ifBlank { "Untitled" },
+                    artist = tempAddSongArtist,
+                    key = tempAddSongKey,
+                    body = "",
+                    sourceUrl = "",
+                    notes = "",
+                    tags = emptyList(),
+                    versions = mutableListOf(),
+                    activeVersionId = "",
+                    recordings = mutableListOf()
+                )
+                upsertSong(newSong, null)
+                showAddSongFlow = false
+                addSongStep = 0
+                selectedAddPath = ""
+                tempAddSongTitle = ""
+                tempAddSongArtist = ""
+                tempAddSongKey = ""
+                tempAddSongUrl = ""
+                tempAddSongText = ""
+                selectedAddSongSource = ""
+            },
+            onCreateWithVoiceNote = {
+                val newSong = Song(
+                    id = java.util.UUID.randomUUID().toString(),
+                    title = tempAddSongTitle.ifBlank { "Untitled" },
+                    artist = tempAddSongArtist,
+                    key = tempAddSongKey,
+                    body = "",
+                    sourceUrl = "",
+                    notes = "",
+                    tags = emptyList(),
+                    versions = mutableListOf(),
+                    activeVersionId = "",
+                    recordings = mutableListOf()
+                )
+                upsertSong(newSong, null)
+                requestOrStartRecording(newSong.id)
+                showAddSongFlow = false
+                addSongStep = 0
+                selectedAddPath = ""
+                tempAddSongTitle = ""
+                tempAddSongArtist = ""
+                tempAddSongKey = ""
+                tempAddSongUrl = ""
+                tempAddSongText = ""
+                selectedAddSongSource = ""
+            },
+            onImportFromUrl = {
+                val newSong = Song(
+                    id = java.util.UUID.randomUUID().toString(),
+                    title = "",
+                    artist = "",
+                    key = "",
+                    body = "",
+                    sourceUrl = tempAddSongUrl,
+                    notes = "",
+                    tags = emptyList(),
+                    versions = mutableListOf(),
+                    activeVersionId = "",
+                    recordings = mutableListOf()
+                )
+                upsertSong(newSong, null)
+                screen = Screen.Detail(newSong.id)
+                openExternalUrl(normalizeUrl(tempAddSongUrl))
+                showAddSongFlow = false
+                addSongStep = 0
+                selectedAddPath = ""
+                tempAddSongTitle = ""
+                tempAddSongArtist = ""
+                tempAddSongKey = ""
+                tempAddSongUrl = ""
+                tempAddSongText = ""
+                selectedAddSongSource = ""
+            },
+            onImportFromText = {
+                val newSong = Song(
+                    id = java.util.UUID.randomUUID().toString(),
+                    title = "",
+                    artist = "",
+                    key = "",
+                    body = tempAddSongText,
+                    sourceUrl = "",
+                    notes = "",
+                    tags = emptyList(),
+                    versions = mutableListOf(),
+                    activeVersionId = "",
+                    recordings = mutableListOf()
+                )
+                upsertSong(newSong, null)
+                screen = Screen.Detail(newSong.id)
+                showAddSongFlow = false
+                addSongStep = 0
+                selectedAddPath = ""
+                tempAddSongTitle = ""
+                tempAddSongArtist = ""
+                tempAddSongKey = ""
+                tempAddSongUrl = ""
+                tempAddSongText = ""
+                selectedAddSongSource = ""
+            }
+        )
     }
 }
 
@@ -868,6 +1022,428 @@ private fun DetailScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AddSongFlowModal(
+    step: Int,
+    selectedPath: String,
+    tempTitle: String,
+    tempArtist: String,
+    tempKey: String,
+    tempUrl: String,
+    tempText: String,
+    selectedSource: String,
+    onDismiss: () -> Unit,
+    onStep1Choice: (String) -> Unit,
+    onStep2AChoice: (String) -> Unit,
+    onStep2BChoice: (String) -> Unit,
+    onTitleChange: (String) -> Unit,
+    onArtistChange: (String) -> Unit,
+    onKeyChange: (String) -> Unit,
+    onUrlChange: (String) -> Unit,
+    onTextChange: (String) -> Unit,
+    onCreateBlank: () -> Unit,
+    onCreateWithVoiceNote: () -> Unit,
+    onImportFromUrl: () -> Unit,
+    onImportFromText: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxWidth(0.95f),
+        containerColor = AppColors.Panel,
+        title = null,
+        text = {
+            when (step) {
+                0 -> AddSongStep1(onStep1Choice)
+                1 -> {
+                    if (selectedPath == "own") {
+                        AddSongStep2A(
+                            selectedSource = selectedSource,
+                            tempTitle = tempTitle,
+                            tempArtist = tempArtist,
+                            tempKey = tempKey,
+                            onStep2AChoice = onStep2AChoice,
+                            onTitleChange = onTitleChange,
+                            onArtistChange = onArtistChange,
+                            onKeyChange = onKeyChange,
+                            onCreateBlank = onCreateBlank,
+                            onCreateWithVoiceNote = onCreateWithVoiceNote,
+                            onBack = onDismiss
+                        )
+                    } else {
+                        AddSongStep2B(
+                            selectedSource = selectedSource,
+                            tempUrl = tempUrl,
+                            tempText = tempText,
+                            onStep2BChoice = onStep2BChoice,
+                            onUrlChange = onUrlChange,
+                            onTextChange = onTextChange,
+                            onImportFromUrl = onImportFromUrl,
+                            onImportFromText = onImportFromText,
+                            onBack = onDismiss
+                        )
+                    }
+                }
+                2 -> {} // Handled by callbacks
+            }
+        },
+        confirmButton = {},
+        dismissButton = {}
+    )
+}
+
+@Composable
+private fun AddSongStep1(onChoice: (String) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "How do you want to add a song?",
+            color = AppColors.Ink,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        AddSongChoiceButton(
+            text = "Write my own",
+            subtitle = "Start fresh with title, artist, and chords",
+            onClick = { onChoice("own") }
+        )
+
+        AddSongChoiceButton(
+            text = "Find online",
+            subtitle = "Import from URL or paste lyrics",
+            onClick = { onChoice("online") }
+        )
+    }
+}
+
+@Composable
+private fun AddSongChoiceButton(
+    text: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.5.dp, AppColors.Accent, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = text,
+                color = AppColors.Ink,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = subtitle,
+                color = AppColors.Muted,
+                fontSize = 13.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddSongStep2A(
+    selectedSource: String,
+    tempTitle: String,
+    tempArtist: String,
+    tempKey: String,
+    onStep2AChoice: (String) -> Unit,
+    onTitleChange: (String) -> Unit,
+    onArtistChange: (String) -> Unit,
+    onKeyChange: (String) -> Unit,
+    onCreateBlank: () -> Unit,
+    onCreateWithVoiceNote: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        if (selectedSource.isEmpty()) {
+            Text(
+                text = "Start your song",
+                color = AppColors.Ink,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            AddSongSourceButton(
+                text = "Blank song",
+                subtitle = "Start with an empty canvas",
+                onClick = { onStep2AChoice("blank") }
+            )
+
+            AddSongSourceButton(
+                text = "Voice note first",
+                subtitle = "Record your melody or idea first",
+                onClick = { onStep2AChoice("voice") }
+            )
+        } else {
+            Text(
+                text = if (selectedSource == "blank") "Create blank song" else "Start with voice note",
+                color = AppColors.Ink,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            UnderlineField(
+                label = "Title",
+                value = tempTitle,
+                onValueChange = onTitleChange
+            )
+
+            UnderlineField(
+                label = "Artist",
+                value = tempArtist,
+                onValueChange = onArtistChange
+            )
+
+            UnderlineField(
+                label = "Key",
+                value = tempKey,
+                onValueChange = onKeyChange
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                TextButton(
+                    onClick = { onStep2AChoice("") },
+                    colors = ButtonDefaults.textButtonColors(contentColor = AppColors.Muted),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Back")
+                }
+
+                Button(
+                    onClick = if (selectedSource == "blank") onCreateBlank else onCreateWithVoiceNote,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AppColors.Accent,
+                        contentColor = AppColors.Ink
+                    ),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (selectedSource == "blank") "Create" else "Start recording")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddSongStep2B(
+    selectedSource: String,
+    tempUrl: String,
+    tempText: String,
+    onStep2BChoice: (String) -> Unit,
+    onUrlChange: (String) -> Unit,
+    onTextChange: (String) -> Unit,
+    onImportFromUrl: () -> Unit,
+    onImportFromText: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        if (selectedSource.isEmpty()) {
+            Text(
+                text = "Find your song online",
+                color = AppColors.Ink,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            AddSongSourceButton(
+                text = "Search online",
+                subtitle = "Browse and search song databases",
+                onClick = { onStep2BChoice("search") }
+            )
+
+            AddSongSourceButton(
+                text = "Paste link",
+                subtitle = "Import from a song sharing site",
+                onClick = { onStep2BChoice("url") }
+            )
+
+            AddSongSourceButton(
+                text = "Paste lyrics",
+                subtitle = "Paste lyrics or chords directly",
+                onClick = { onStep2BChoice("text") }
+            )
+        } else {
+            Text(
+                text = when (selectedSource) {
+                    "search" -> "Search songs"
+                    "url" -> "Paste song link"
+                    "text" -> "Paste lyrics or chords"
+                    else -> "Import song"
+                },
+                color = AppColors.Ink,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            when (selectedSource) {
+                "url" -> {
+                    UnderlineField(
+                        label = "Song URL",
+                        value = tempUrl,
+                        onValueChange = onUrlChange
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TextButton(
+                            onClick = { onStep2BChoice("") },
+                            colors = ButtonDefaults.textButtonColors(contentColor = AppColors.Muted),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Back")
+                        }
+
+                        Button(
+                            onClick = onImportFromUrl,
+                            enabled = tempUrl.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AppColors.Accent,
+                                contentColor = AppColors.Ink
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Import")
+                        }
+                    }
+                }
+                "text" -> {
+                    Text(
+                        text = "Paste lyrics or chords below",
+                        color = AppColors.Muted,
+                        fontSize = 12.sp
+                    )
+
+                    LyricsEditor(
+                        value = TextFieldValue(tempText),
+                        onValueChange = { onTextChange(it.text) },
+                        monospace = true
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TextButton(
+                            onClick = { onStep2BChoice("") },
+                            colors = ButtonDefaults.textButtonColors(contentColor = AppColors.Muted),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Back")
+                        }
+
+                        Button(
+                            onClick = onImportFromText,
+                            enabled = tempText.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AppColors.Accent,
+                                contentColor = AppColors.Ink
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Import")
+                        }
+                    }
+                }
+                "search" -> {
+                    Text(
+                        text = "Search feature coming soon. For now, you can:",
+                        color = AppColors.Muted,
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TextButton(
+                            onClick = { onStep2BChoice("") },
+                            colors = ButtonDefaults.textButtonColors(contentColor = AppColors.Muted),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Back")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddSongSourceButton(
+    text: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, AppColors.Line, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(14.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = text,
+                color = AppColors.Ink,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = subtitle,
+                color = AppColors.Muted,
+                fontSize = 12.sp
+            )
         }
     }
 }
