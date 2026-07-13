@@ -627,6 +627,7 @@ private fun DetailScreen(
     val scope = rememberCoroutineScope()
     val activeVersion = remember(song.id, song.activeVersionId, song.versions.size) { versionManager.activeVersion(song) }
     var selectedTab by rememberSaveable { mutableStateOf(0) }
+    var isBottomSheetExpanded by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(autoScroll, scrollState.maxValue) {
         while (autoScroll) {
@@ -728,91 +729,143 @@ private fun DetailScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Bottom Tabs
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
-            TabItem("Versions", isSelected = selectedTab == 0, onClick = { selectedTab = 0 }, modifier = Modifier.weight(1f))
-            Divider(color = AppColors.Line, modifier = Modifier
-                .width(1.dp)
-                .height(40.dp))
-            TabItem("Voice", isSelected = selectedTab == 1, onClick = { selectedTab = 1 }, modifier = Modifier.weight(1f))
-            Divider(color = AppColors.Line, modifier = Modifier
-                .width(1.dp)
-                .height(40.dp))
-            TabItem("Options", isSelected = selectedTab == 2, onClick = { selectedTab = 2 }, modifier = Modifier.weight(1f))
-        }
+        // Collapsible Bottom Sheet
+        if (isBottomSheetExpanded) {
+            // Expanded state
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+            ) {
+                // Tabs header with close button
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
+                    TabItem("Versions", isSelected = selectedTab == 0, onClick = { selectedTab = 0 }, modifier = Modifier.weight(1f))
+                    Divider(color = AppColors.Line, modifier = Modifier
+                        .width(1.dp)
+                        .height(40.dp))
+                    TabItem("Voice", isSelected = selectedTab == 1, onClick = { selectedTab = 1 }, modifier = Modifier.weight(1f))
+                    Divider(color = AppColors.Line, modifier = Modifier
+                        .width(1.dp)
+                        .height(40.dp))
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .clickable {
+                                isBottomSheetExpanded = false
+                                onEdit()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Edit",
+                            color = AppColors.Accent,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Bottom Content based on selected tab
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-                .padding(bottom = 12.dp)
-        ) {
-            when (selectedTab) {
-                0 -> {
-                    // Versions
-                    DarkPanel {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Versions", color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                            Text("Latest: ${song.versions.size}", color = AppColors.Muted, fontSize = 13.sp)
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, AppColors.Line, RoundedCornerShape(12.dp))
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Versions", color = AppColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Latest: ${song.versions.size}", color = AppColors.Muted, fontSize = 12.sp)
+                // Bottom Content based on selected tab
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                ) {
+                    when (selectedTab) {
+                        0 -> {
+                            // Versions
+                            DarkPanel {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Versions", color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                    Text("Latest: ${song.versions.size}", color = AppColors.Muted, fontSize = 13.sp)
+                                }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .border(1.dp, AppColors.Line, RoundedCornerShape(12.dp))
+                                        .clickable { selectedTab = 0 }
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Versions", color = AppColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("Latest: ${song.versions.size}", color = AppColors.Muted, fontSize = 12.sp)
+                                    }
+                                    Text(">", color = AppColors.Muted, fontSize = 18.sp)
+                                }
                             }
-                            Text(">", color = AppColors.Muted, fontSize = 18.sp)
+                        }
+                        1 -> {
+                            // Voice Notes
+                            DarkPanel {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Voice notes", color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                    Text("Latest: ${song.recordings.size}", color = AppColors.Muted, fontSize = 13.sp)
+                                }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .border(1.dp, AppColors.Line, RoundedCornerShape(12.dp))
+                                        .clickable { selectedTab = 1 }
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Voice notes", color = AppColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("Latest: ${song.recordings.size}", color = AppColors.Muted, fontSize = 12.sp)
+                                    }
+                                    Text(">", color = AppColors.Muted, fontSize = 18.sp)
+                                }
+                            }
                         }
                     }
                 }
-                1 -> {
-                    // Voice Notes
-                    DarkPanel {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Voice notes", color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                            Text("Latest: ${song.recordings.size}", color = AppColors.Muted, fontSize = 13.sp)
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, AppColors.Line, RoundedCornerShape(12.dp))
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Voice notes", color = AppColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Latest: ${song.recordings.size}", color = AppColors.Muted, fontSize = 12.sp)
-                            }
-                            Text(">", color = AppColors.Muted, fontSize = 18.sp)
-                        }
-                    }
-                }
-                2 -> {
-                    // Options
-                    DarkPanel {
-                        Text("Options", color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        SecondaryButton("Edit Song", onClick = onEdit, modifier = Modifier.fillMaxWidth())
-                    }
+            }
+        } else {
+            // Collapsed state - just show tabs as buttons
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp)
+            ) {
+                TabItem("Versions", isSelected = false, onClick = { selectedTab = 0; isBottomSheetExpanded = true }, modifier = Modifier.weight(1f))
+                Divider(color = AppColors.Line, modifier = Modifier
+                    .width(1.dp)
+                    .height(40.dp))
+                TabItem("Voice", isSelected = false, onClick = { selectedTab = 1; isBottomSheetExpanded = true }, modifier = Modifier.weight(1f))
+                Divider(color = AppColors.Line, modifier = Modifier
+                    .width(1.dp)
+                    .height(40.dp))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clickable {
+                            isBottomSheetExpanded = false
+                            onEdit()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Edit",
+                        color = AppColors.Accent,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }
