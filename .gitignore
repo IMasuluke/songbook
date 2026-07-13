@@ -10,5 +10,6 @@ local.properties
 *.aab
 *.keystore
 *.jks
+*.hprof
 
 .DS_Store
