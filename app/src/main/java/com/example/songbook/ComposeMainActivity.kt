@@ -626,6 +626,7 @@ private fun DetailScreen(
     var autoScroll by rememberSaveable(song.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val activeVersion = remember(song.id, song.activeVersionId, song.versions.size) { versionManager.activeVersion(song) }
+    var selectedTab by rememberSaveable { mutableStateOf(0) }
 
     LaunchedEffect(autoScroll, scrollState.maxValue) {
         while (autoScroll) {
@@ -643,51 +644,78 @@ private fun DetailScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 10.dp)
     ) {
+        // Header
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CircleIconButton(Icons.Outlined.ArrowBack, onClick = onBack)
-            Spacer(modifier = Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            CircleIconButton(Icons.Outlined.ArrowBack, onClick = onBack, size = 44.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = song.title,
                     color = AppColors.Ink,
                     fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp
+                    fontSize = 28.sp
                 )
                 Text(
                     text = if (song.artist.isBlank()) "Unknown artist" else song.artist,
-                    color = AppColors.Muted,
-                    fontSize = 13.sp
+                    color = AppColors.Accent,
+                    fontSize = 14.sp
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            CircleIconButton(Icons.Outlined.BookmarkBorder, onClick = {})
-            Spacer(modifier = Modifier.width(8.dp))
-            CircleIconButton(Icons.Outlined.MoreVert, onClick = onEdit)
+            CircleIconButton(Icons.Outlined.BookmarkBorder, onClick = {}, size = 44.dp)
+            Spacer(modifier = Modifier.width(4.dp))
+            CircleIconButton(Icons.Outlined.MoreVert, onClick = onEdit, size = 44.dp)
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Key/Tempo Controls
         Row(
             modifier = Modifier
-                .horizontalScroll(rememberScrollState()),
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            MetaChip("Key ${song.key.ifBlank { "-" }}", accent = true)
-            MetaChip(song.notes.ifBlank { "3/4" }, accent = false)
-            MetaChip("Capo -", accent = false)
-            MetaChip(activeVersion.name, accent = false)
+            OutlinedControlButton("Key ${song.key.ifBlank { "-" }}")
+            OutlinedControlButton(song.notes.ifBlank { "3/4" })
+            OutlinedControlButton("Capo -")
+            OutlinedControlButton("Main")
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Playback Controls
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ReaderControlSmall("-", onClick = { onReaderTextSizeChange((readerTextSize - 1f).coerceAtLeast(14f)) }, modifier = Modifier.weight(1f))
+            ReaderControlSmall("+", onClick = { onReaderTextSizeChange((readerTextSize + 1f).coerceAtMost(28f)) }, modifier = Modifier.weight(1f))
+            ReaderControlSmall("Aa", onClick = {}, modifier = Modifier.weight(1f))
+            ReaderControlToggle(isActive = autoScroll, onClick = { autoScroll = !autoScroll }, modifier = Modifier.weight(1f))
+            ReaderControlSmall("⬆", onClick = { scope.launch { scrollState.animateScrollTo(0) } }, modifier = Modifier.weight(1f))
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Divider(color = AppColors.Line, thickness = 1.dp, modifier = Modifier.padding(horizontal = 12.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Lyrics Display
         Column(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(scrollState)
+                .padding(horizontal = 12.dp)
         ) {
             Text(
                 text = styledLyrics(song.body.ifBlank { "No lyrics or chords yet." }),
@@ -696,83 +724,96 @@ private fun DetailScreen(
                 fontSize = readerTextSize.sp,
                 lineHeight = (readerTextSize + 10).sp
             )
-
-            if (song.sourceUrl.isNotBlank()) {
-                Spacer(modifier = Modifier.height(22.dp))
-                DarkPanel {
-                    Text("SOURCE", color = AppColors.SoftGold, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(song.sourceUrl, color = AppColors.Muted, fontSize = 13.sp)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SecondaryButton("Open source", onClick = onOpenSource, modifier = Modifier.weight(1f))
-                        SecondaryButton("Edit song", onClick = onEdit, modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-            DarkPanel {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("VERSIONS", color = AppColors.SoftGold, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    AccentButton("Branch", onClick = onCreateVersion)
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "Active: ${activeVersion.name}${versionManager.parentVersionLabel(song, activeVersion)}",
-                    color = AppColors.Muted,
-                    fontSize = 13.sp
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                song.versions.forEach { version ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = if (version.id == song.activeVersionId) "${version.name} (active)" else version.name,
-                                color = AppColors.Ink,
-                                fontSize = 15.sp,
-                                fontWeight = if (version.id == song.activeVersionId) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                            Text(
-                                text = timestamp(version.updatedAt),
-                                color = AppColors.Muted,
-                                fontSize = 12.sp
-                            )
-                        }
-                        if (version.id != song.activeVersionId) {
-                            SecondaryButton("Switch", onClick = { onSwitchVersion(version) })
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                }
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-            VoiceNotesSection(
-                song = song,
-                isRecording = isRecording,
-                playingPath = playingPath,
-                onToggleRecording = onToggleRecording,
-                onPlayLatest = onPlayLatest,
-                onTogglePlayback = onTogglePlayback,
-                onRenameRecording = onRenameRecording,
-                onDeleteRecording = onDeleteRecording
-            )
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
-        DarkPanel(padding = 10.dp) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                ReaderControl(symbol = "-", label = "Transpose", onClick = { onReaderTextSizeChange((readerTextSize - 1f).coerceAtLeast(14f)) }, modifier = Modifier.weight(1f))
-                ReaderControl(symbol = "Aa", label = "Text size", onClick = { onReaderTextSizeChange((readerTextSize + 1f).coerceAtMost(28f)) }, modifier = Modifier.weight(1f))
-                ReaderControl(symbol = if (autoScroll) "||" else ">", label = "Auto-scroll", onClick = { autoScroll = !autoScroll }, modifier = Modifier.weight(1f))
-                ReaderControl(symbol = "[]", label = "Top", onClick = { scope.launch { scrollState.animateScrollTo(0) } }, modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Bottom Tabs
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            TabItem("Versions", isSelected = selectedTab == 0, onClick = { selectedTab = 0 }, modifier = Modifier.weight(1f))
+            Divider(color = AppColors.Line, modifier = Modifier
+                .width(1.dp)
+                .height(40.dp))
+            TabItem("Voice", isSelected = selectedTab == 1, onClick = { selectedTab = 1 }, modifier = Modifier.weight(1f))
+            Divider(color = AppColors.Line, modifier = Modifier
+                .width(1.dp)
+                .height(40.dp))
+            TabItem("Options", isSelected = selectedTab == 2, onClick = { selectedTab = 2 }, modifier = Modifier.weight(1f))
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Bottom Content based on selected tab
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(bottom = 12.dp)
+        ) {
+            when (selectedTab) {
+                0 -> {
+                    // Versions
+                    DarkPanel {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Versions", color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            Text("Latest: ${song.versions.size}", color = AppColors.Muted, fontSize = 13.sp)
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, AppColors.Line, RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Versions", color = AppColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Latest: ${song.versions.size}", color = AppColors.Muted, fontSize = 12.sp)
+                            }
+                            Text(">", color = AppColors.Muted, fontSize = 18.sp)
+                        }
+                    }
+                }
+                1 -> {
+                    // Voice Notes
+                    DarkPanel {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Voice notes", color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            Text("Latest: ${song.recordings.size}", color = AppColors.Muted, fontSize = 13.sp)
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, AppColors.Line, RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Voice notes", color = AppColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Latest: ${song.recordings.size}", color = AppColors.Muted, fontSize = 12.sp)
+                            }
+                            Text(">", color = AppColors.Muted, fontSize = 18.sp)
+                        }
+                    }
+                }
+                2 -> {
+                    // Options
+                    DarkPanel {
+                        Text("Options", color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        SecondaryButton("Edit Song", onClick = onEdit, modifier = Modifier.fillMaxWidth())
+                    }
+                }
             }
         }
     }
@@ -1437,10 +1478,10 @@ private fun TabPill(text: String, active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun CircleIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun CircleIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit, size: androidx.compose.ui.unit.Dp = 44.dp) {
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(size)
             .clip(CircleShape)
             .background(AppColors.Surface)
             .border(1.dp, AppColors.Line, CircleShape)
@@ -1495,10 +1536,87 @@ private fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifie
 
 @Composable
 private fun ReaderControl(symbol: String, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
+    Column(horizontalAlignment = Alignment.CenterVertically, modifier = modifier) {
         SecondaryButton(text = symbol, onClick = onClick)
         Spacer(modifier = Modifier.height(6.dp))
         Text(label, color = AppColors.Muted, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun OutlinedControlButton(text: String) {
+    OutlinedButton(
+        onClick = {},
+        modifier = Modifier.heightIn(min = 40.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, AppColors.Accent),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.Accent)
+    ) {
+        Text(text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun ReaderControlSmall(symbol: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 40.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, AppColors.Accent),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.Accent)
+    ) {
+        Text(symbol, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun ReaderControlToggle(isActive: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 40.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, if (isActive) AppColors.Accent else AppColors.Line),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = if (isActive) AppColors.Accent else AppColors.Muted,
+            containerColor = if (isActive) AppColors.Accent.copy(alpha = 0.15f) else Color.Transparent
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(if (isActive) AppColors.Accent else Color.Transparent)
+                .border(1.5.dp, if (isActive) AppColors.Accent else AppColors.Line, CircleShape)
+        )
+    }
+}
+
+@Composable
+private fun TabItem(text: String, isSelected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = text,
+                color = if (isSelected) AppColors.Accent else AppColors.Muted,
+                fontSize = 14.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+            )
+            if (isSelected) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .width(24.dp)
+                        .height(2.dp)
+                        .background(AppColors.Accent)
+                )
+            }
+        }
     }
 }
 
