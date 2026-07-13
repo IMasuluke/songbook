@@ -536,19 +536,10 @@ private fun SongbookApp(
             onUrlChange = { tempAddSongUrl = it },
             onTextChange = { tempAddSongText = it },
             onCreateBlank = {
-                val newSong = Song(
-                    id = java.util.UUID.randomUUID().toString(),
-                    title = tempAddSongTitle.ifBlank { "Untitled" },
-                    artist = tempAddSongArtist,
-                    key = tempAddSongKey,
-                    body = "",
-                    sourceUrl = "",
-                    notes = "",
-                    tags = emptyList(),
-                    versions = mutableListOf(),
-                    activeVersionId = "",
-                    recordings = mutableListOf()
-                )
+                val newSong = Song()
+                newSong.title = tempAddSongTitle.ifBlank { "Untitled" }
+                newSong.artist = tempAddSongArtist
+                newSong.key = tempAddSongKey
                 upsertSong(newSong, null)
                 showAddSongFlow = false
                 addSongStep = 0
@@ -561,19 +552,10 @@ private fun SongbookApp(
                 selectedAddSongSource = ""
             },
             onCreateWithVoiceNote = {
-                val newSong = Song(
-                    id = java.util.UUID.randomUUID().toString(),
-                    title = tempAddSongTitle.ifBlank { "Untitled" },
-                    artist = tempAddSongArtist,
-                    key = tempAddSongKey,
-                    body = "",
-                    sourceUrl = "",
-                    notes = "",
-                    tags = emptyList(),
-                    versions = mutableListOf(),
-                    activeVersionId = "",
-                    recordings = mutableListOf()
-                )
+                val newSong = Song()
+                newSong.title = tempAddSongTitle.ifBlank { "Untitled" }
+                newSong.artist = tempAddSongArtist
+                newSong.key = tempAddSongKey
                 upsertSong(newSong, null)
                 requestOrStartRecording(newSong.id)
                 showAddSongFlow = false
@@ -587,19 +569,8 @@ private fun SongbookApp(
                 selectedAddSongSource = ""
             },
             onImportFromUrl = {
-                val newSong = Song(
-                    id = java.util.UUID.randomUUID().toString(),
-                    title = "",
-                    artist = "",
-                    key = "",
-                    body = "",
-                    sourceUrl = tempAddSongUrl,
-                    notes = "",
-                    tags = emptyList(),
-                    versions = mutableListOf(),
-                    activeVersionId = "",
-                    recordings = mutableListOf()
-                )
+                val newSong = Song()
+                newSong.sourceUrl = tempAddSongUrl
                 upsertSong(newSong, null)
                 screen = Screen.Detail(newSong.id)
                 openExternalUrl(normalizeUrl(tempAddSongUrl))
@@ -614,19 +585,8 @@ private fun SongbookApp(
                 selectedAddSongSource = ""
             },
             onImportFromText = {
-                val newSong = Song(
-                    id = java.util.UUID.randomUUID().toString(),
-                    title = "",
-                    artist = "",
-                    key = "",
-                    body = tempAddSongText,
-                    sourceUrl = "",
-                    notes = "",
-                    tags = emptyList(),
-                    versions = mutableListOf(),
-                    activeVersionId = "",
-                    recordings = mutableListOf()
-                )
+                val newSong = Song()
+                newSong.body = tempAddSongText
                 upsertSong(newSong, null)
                 screen = Screen.Detail(newSong.id)
                 showAddSongFlow = false
