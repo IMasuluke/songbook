@@ -114,6 +114,7 @@ public class MainActivity extends Activity {
     private final List<Song> songs = new ArrayList<>();
     private final SongVersionManager versionManager = new SongVersionManager();
     private LocalSongRepository songRepository;
+    private RemoteConfigManager remoteConfigManager;
     private LinearLayout root;
     private LinearLayout songList;
     private EditText searchField;
@@ -151,8 +152,11 @@ public class MainActivity extends Activity {
         auth = FirebaseAuth.getInstance();
         credentialManager = CredentialManager.create(this);
         credentialExecutor = Executors.newSingleThreadExecutor();
-        loadSongs();
-        showLibrary();
+        remoteConfigManager = RemoteConfigManager.getInstance();
+        remoteConfigManager.fetchAndActivate(() -> {
+            loadSongs();
+            showLibrary();
+        });
     }
 
     private void showLibrary() {
@@ -2457,6 +2461,26 @@ public class MainActivity extends Activity {
         CREATE_DOC,
         SHARE_DOC,
         SYNC_DOC
+    }
+
+    private boolean isFeatureEnabled(String featureName) {
+        return remoteConfigManager != null && remoteConfigManager.isFeatureEnabled(featureName);
+    }
+
+    private boolean isGoogleDocCollaborationEnabled() {
+        return isFeatureEnabled("enable_google_docs_collaboration");
+    }
+
+    private boolean isVoiceRecordingsEnabled() {
+        return isFeatureEnabled("enable_voice_recordings");
+    }
+
+    private boolean isWebLookupEnabled() {
+        return isFeatureEnabled("enable_web_lookup");
+    }
+
+    private boolean isSongVersionsEnabled() {
+        return isFeatureEnabled("enable_song_versions");
     }
 
     private static class SimpleTextWatcher implements android.text.TextWatcher {
