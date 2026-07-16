@@ -270,9 +270,26 @@ public class MainActivity extends Activity {
         backup.addView(button("Restore Backup", false, v -> chooseBackupToRestore()));
         content.addView(backup, margins(match(), wrap(), 0, 0, 0, 12));
 
+        LinearLayout remoteControl = panel();
+        remoteControl.addView(subtitle("Remote Control"));
+        remoteControl.addView(muted("Features controlled by Firebase Remote Config:"), margins(match(), wrap(), 0, 0, 0, 10));
+        remoteControl.addView(featureFlagRow("Google Docs Collaboration", isGoogleDocCollaborationEnabled()));
+        remoteControl.addView(featureFlagRow("Voice Recordings", isVoiceRecordingsEnabled()));
+        remoteControl.addView(featureFlagRow("Web Lookup", isWebLookupEnabled()), margins(match(), wrap(), 0, 0, 0, 8));
+        remoteControl.addView(featureFlagRow("Song Versions", isSongVersionsEnabled()));
+        content.addView(remoteControl, margins(match(), wrap(), 0, 0, 0, 12));
+
         scroll.addView(content);
         root.addView(scroll, new LinearLayout.LayoutParams(match(), 0, 1));
         setContentView(root);
+    }
+
+    private LinearLayout featureFlagRow(String name, boolean enabled) {
+        LinearLayout row = row();
+        row.addView(body(name), new LinearLayout.LayoutParams(0, wrap(), 1));
+        TextView status = muted(enabled ? "✓ Enabled" : "✗ Disabled");
+        row.addView(status, margins(wrap(), wrap(), 12, 0, 0, 0));
+        return row;
     }
 
     private void startGoogleSignIn(Runnable afterSignIn) {
