@@ -1,16 +1,23 @@
 package com.example.songbook
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Bundle
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,10 +52,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoAwesomeMotion
-import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -93,14 +101,22 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.example.songbook.data.local.LocalSongRepository
 import com.example.songbook.data.local.SongJsonMapper
 import com.example.songbook.domain.model.Recording
 import com.example.songbook.domain.model.Song
 import com.example.songbook.domain.model.SongVersion
 import com.example.songbook.domain.usecase.SongVersionManager
+import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.AuthorizationResult
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -121,9 +137,6 @@ class ComposeMainActivity : ComponentActivity() {
                 SongbookApp(
                     repository = repository,
                     versionManager = versionManager,
-                    openExternalUrl = { url ->
-                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    },
                     showToast = { message ->
                         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
                     }
@@ -137,7 +150,6 @@ class ComposeMainActivity : ComponentActivity() {
 private fun SongbookApp(
     repository: LocalSongRepository,
     versionManager: SongVersionManager,
-    openExternalUrl: (String) -> Unit,
     showToast: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -158,12 +170,82 @@ private fun SongbookApp(
     var showAddSongFlow by rememberSaveable { mutableStateOf(false) }
     var addSongStep by rememberSaveable { mutableIntStateOf(0) }
     var selectedAddPath by rememberSaveable { mutableStateOf("") }
-    var tempAddSongTitle by rememberSaveable { mutableStateOf("") }
-    var tempAddSongArtist by rememberSaveable { mutableStateOf("") }
-    var tempAddSongKey by rememberSaveable { mutableStateOf("") }
+    var selectedAddOnlineSource by rememberSaveable { mutableStateOf("") }
     var tempAddSongUrl by rememberSaveable { mutableStateOf("") }
-    var tempAddSongText by rememberSaveable { mutableStateOf("") }
-    var selectedAddSongSource by rememberSaveable { mutableStateOf("") }
+    var docsSyncingSongId by remember { mutableStateOf<String?>(null) }
+    var pendingDocSyncSongId by remember { mutableStateOf<String?>(null) }
+    var isFolderSyncing by remember { mutableStateOf(false) }
+    var pendingFolderSync by remember { mutableStateOf(false) }
+    val docsAuthorizationClient = remember(activity) { Identity.getAuthorizationClient(activity) }
+    val docsAuthorizationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) {
+            pendingDocSyncSongId = null
+            pendingFolderSync = false
+            docsSyncingSongId = null
+            isFolderSyncing = false
+            showToast("Google Docs authorization cancelled.")
+            return@rememberLauncherForActivityResult
+        }
+        try {
+            val authorizationResult = docsAuthorizationClient.getAuthorizationResultFromIntent(result.data)
+            if (authorizationResult.accessToken.isNullOrBlank()) {
+                pendingDocSyncSongId = null
+                pendingFolderSync = false
+                docsSyncingSongId = null
+                isFolderSyncing = false
+                showToast("Google Docs authorization did not return a token.")
+            } else {
+                val token = authorizationResult.accessToken.orEmpty()
+                val songId = pendingDocSyncSongId
+                val shouldSyncFolder = pendingFolderSync
+                pendingDocSyncSongId = null
+                pendingFolderSync = false
+                when {
+                    songId != null -> {
+                        val original = songs.firstOrNull { it.id == songId }
+                        if (original == null) {
+                            docsSyncingSongId = null
+                        } else {
+                            launchDocSync(
+                                song = original,
+                                accessToken = token,
+                                onUpdateSong = { updated ->
+                                    songs = songs.map { if (it.id == updated.id) updated else it }
+                                    repository.saveSongs(songs)
+                                    refreshNonce++
+                                },
+                                onFinish = { docsSyncingSongId = null },
+                                showToast = showToast
+                            )
+                        }
+                    }
+                    shouldSyncFolder -> {
+                        launchFolderSync(
+                            accessToken = token,
+                            existingSongs = songs,
+                            onMergeSongs = { merged ->
+                                songs = merged
+                                repository.saveSongs(songs)
+                                refreshNonce++
+                            },
+                            onFinish = { isFolderSyncing = false },
+                            showToast = showToast
+                        )
+                    }
+                    else -> {
+                        docsSyncingSongId = null
+                        isFolderSyncing = false
+                    }
+                }
+            }
+        } catch (e: ApiException) {
+            pendingDocSyncSongId = null
+            pendingFolderSync = false
+            docsSyncingSongId = null
+            isFolderSyncing = false
+            showToast("Could not authorize Google Docs.")
+        }
+    }
 
     fun releaseRecorder() {
         recorder?.release()
@@ -182,6 +264,90 @@ private fun SongbookApp(
         songs = songs.map { if (it.id == updated.id) updated else it }
         repository.saveSongs(songs)
         refreshNonce++
+    }
+
+    fun requestGoogleDocSync(songId: String) {
+        val song = songs.firstOrNull { it.id == songId } ?: return
+        docsSyncingSongId = songId
+        val request = AuthorizationRequest.builder()
+            .setRequestedScopes(
+                listOf(
+                    Scope(GoogleDocsSyncService.DOCS_SCOPE),
+                    Scope(GoogleDocsSyncService.DRIVE_SCOPE)
+                )
+            )
+            .build()
+        docsAuthorizationClient.authorize(request)
+            .addOnSuccessListener { result ->
+                val accessToken = result.accessToken
+                if (!accessToken.isNullOrBlank()) {
+                    launchDocSync(
+                        song = song,
+                        accessToken = accessToken,
+                        onUpdateSong = { updated ->
+                            songs = songs.map { if (it.id == updated.id) updated else it }
+                            repository.saveSongs(songs)
+                            refreshNonce++
+                        },
+                        onFinish = { docsSyncingSongId = null },
+                        showToast = showToast
+                    )
+                } else if (result.hasResolution() && result.pendingIntent != null) {
+                    pendingDocSyncSongId = songId
+                    docsAuthorizationLauncher.launch(
+                        IntentSenderRequest.Builder(result.pendingIntent!!.intentSender).build()
+                    )
+                } else {
+                    docsSyncingSongId = null
+                    showToast("Could not authorize Google Docs.")
+                }
+            }
+            .addOnFailureListener {
+                docsSyncingSongId = null
+                showToast("Could not connect to Google Docs.")
+            }
+    }
+
+    fun requestGoogleFolderSync(interactive: Boolean) {
+        isFolderSyncing = true
+        val request = AuthorizationRequest.builder()
+            .setRequestedScopes(
+                listOf(
+                    Scope(GoogleDocsSyncService.DOCS_SCOPE),
+                    Scope(GoogleDocsSyncService.DRIVE_SCOPE)
+                )
+            )
+            .build()
+        docsAuthorizationClient.authorize(request)
+            .addOnSuccessListener { result ->
+                val accessToken = result.accessToken
+                if (!accessToken.isNullOrBlank()) {
+                    launchFolderSync(
+                        accessToken = accessToken,
+                        existingSongs = songs,
+                        onMergeSongs = { merged ->
+                            songs = merged
+                            repository.saveSongs(songs)
+                            refreshNonce++
+                        },
+                        onFinish = { isFolderSyncing = false },
+                        showToast = showToast
+                    )
+                } else if (interactive && result.hasResolution() && result.pendingIntent != null) {
+                    pendingFolderSync = true
+                    docsAuthorizationLauncher.launch(
+                        IntentSenderRequest.Builder(result.pendingIntent!!.intentSender).build()
+                    )
+                } else {
+                    isFolderSyncing = false
+                }
+            }
+            .addOnFailureListener {
+                isFolderSyncing = false
+                if (interactive) {
+                    showToast("Could not connect to Google Drive.")
+                }
+            }
     }
 
     fun startRecordingNow(songId: String) {
@@ -291,6 +457,10 @@ private fun SongbookApp(
         }
     }
 
+    LaunchedEffect(Unit) {
+        requestGoogleFolderSync(interactive = false)
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             releaseRecorder()
@@ -302,6 +472,14 @@ private fun SongbookApp(
         songs = next
         repository.saveSongs(next)
         refreshNonce++
+    }
+
+    fun resetAddSongFlow() {
+        showAddSongFlow = false
+        addSongStep = 0
+        selectedAddPath = ""
+        selectedAddOnlineSource = ""
+        tempAddSongUrl = ""
     }
 
     fun upsertSong(updated: Song, existingId: String?) {
@@ -319,7 +497,16 @@ private fun SongbookApp(
             }
         }
         persistSongs(next)
-        screen = Screen.Detail(copy.id)
+        screen = if (copy.isOnlineSource && copy.sourceUrl.isNotBlank()) {
+            Screen.Browser(
+                initialUrl = normalizeUrl(copy.sourceUrl),
+                allowSaveToEditor = false,
+                editSongId = copy.id,
+                returnSongId = null
+            )
+        } else {
+            Screen.Detail(copy.id)
+        }
     }
 
     fun deleteSong(songId: String) {
@@ -345,7 +532,25 @@ private fun SongbookApp(
         when (val current = screen) {
             Screen.Library -> LibraryScreen(
                 songs = songs,
-                onOpenSong = { screen = Screen.Detail(it) },
+                onOpenSong = { songId ->
+                    val song = songs.firstOrNull { it.id == songId }
+                    if (song != null && song.isOnlineSource && song.sourceUrl.isNotBlank()) {
+                        screen = Screen.Browser(
+                            initialUrl = normalizeUrl(song.sourceUrl),
+                            allowSaveToEditor = false,
+                            editSongId = song.id,
+                            returnSongId = null
+                        )
+                    } else {
+                        screen = Screen.Detail(songId)
+                    }
+                },
+                onToggleFavorite = { songId ->
+                    val song = songs.firstOrNull { it.id == songId } ?: return@LibraryScreen
+                    val updated = deepCopySong(song)
+                    updated.isFavorite = !updated.isFavorite
+                    persistSongs(songs.map { if (it.id == songId) updated else it })
+                },
                 onNewSong = { showAddSongFlow = true },
                 onSettings = { screen = Screen.Settings }
             )
@@ -361,10 +566,15 @@ private fun SongbookApp(
                         readerTextSize = readerTextSize,
                         onReaderTextSizeChange = { readerTextSize = it },
                         onBack = { screen = Screen.Library },
-                        onEdit = { screen = Screen.Editor(song.id, null) },
+                onEdit = { screen = Screen.Editor(song.id, null, null, false) },
                         onOpenSource = {
                             if (song.sourceUrl.isNotBlank()) {
-                                openExternalUrl(normalizeUrl(song.sourceUrl))
+                                screen = Screen.Browser(
+                                    initialUrl = normalizeUrl(song.sourceUrl),
+                                    allowSaveToEditor = false,
+                                    editSongId = song.id,
+                                    returnSongId = song.id
+                                )
                             }
                         },
                         onCreateVersion = { showVersionDialogForId = song.id },
@@ -372,6 +582,13 @@ private fun SongbookApp(
                             val switched = deepCopySong(song)
                             versionManager.switchVersion(switched, version)
                             persistSongs(songs.map { if (it.id == switched.id) switched else it })
+                        },
+                        isDocsSyncing = docsSyncingSongId == song.id,
+                        onSyncGoogleDoc = { requestGoogleDocSync(song.id) },
+                        onOpenGoogleDoc = {
+                            if (song.googleDocUrl.isNotBlank()) {
+                                activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(song.googleDocUrl)))
+                            }
                         },
                         isRecording = recordingSongId == song.id,
                         playingPath = playingPath,
@@ -399,9 +616,11 @@ private fun SongbookApp(
             }
 
             is Screen.Editor -> EditorScreen(
-                key = "${current.songId ?: "new"}:${current.initialSource.orEmpty()}",
+                key = "${current.songId ?: "new"}:${current.initialSource.orEmpty()}:${current.initialTitle.orEmpty()}:${current.initialOnline}",
                 baseSong = currentSong,
                 initialSource = current.initialSource,
+                initialTitle = current.initialTitle,
+                initialOnline = current.initialOnline,
                 repository = repository,
                 showToast = showToast,
                 onCancel = {
@@ -411,11 +630,28 @@ private fun SongbookApp(
                 onDelete = { songId -> deleteSong(songId) }
             )
 
+            is Screen.Browser -> BrowserScreen(
+                initialUrl = current.initialUrl,
+                allowSaveToEditor = current.allowSaveToEditor,
+                onEditSong = current.editSongId?.let { songId ->
+                    { screen = Screen.Editor(songId, null, null, false) }
+                },
+                onBack = {
+                    screen = current.returnSongId?.let(Screen::Detail) ?: Screen.Library
+                },
+                onSaveToEditor = { pageUrl, pageTitle ->
+                    showToast("Source link added. Finish the song details and save.")
+                    screen = Screen.Editor(null, pageUrl, pageTitle, true)
+                }
+            )
+
             Screen.Settings -> SettingsScreen(
                 songCount = songs.size,
                 draftAvailable = repository.hasDraft(),
+                isDriveSyncing = isFolderSyncing,
                 onBack = { screen = Screen.Library },
-                onNewSong = { screen = Screen.Editor(null, null) },
+                onNewSong = { screen = Screen.Editor(null, null, null, false) },
+                onSyncGoogleDrive = { requestGoogleFolderSync(interactive = true) },
                 onClearDraft = {
                     repository.clearDraft()
                     showToast("Draft cleared.")
@@ -501,103 +737,42 @@ private fun SongbookApp(
         AddSongFlowModal(
             step = addSongStep,
             selectedPath = selectedAddPath,
-            tempTitle = tempAddSongTitle,
-            tempArtist = tempAddSongArtist,
-            tempKey = tempAddSongKey,
+            selectedSource = selectedAddOnlineSource,
             tempUrl = tempAddSongUrl,
-            tempText = tempAddSongText,
-            selectedSource = selectedAddSongSource,
-            onDismiss = {
-                showAddSongFlow = false
-                addSongStep = 0
-                selectedAddPath = ""
-                tempAddSongTitle = ""
-                tempAddSongArtist = ""
-                tempAddSongKey = ""
-                tempAddSongUrl = ""
-                tempAddSongText = ""
-                selectedAddSongSource = ""
-            },
+            onDismiss = ::resetAddSongFlow,
             onStep1Choice = { choice ->
-                selectedAddPath = choice
-                addSongStep = 1
-            },
-            onStep2AChoice = { source ->
-                selectedAddSongSource = source
-                addSongStep = 2
+                if (choice == "own") {
+                    resetAddSongFlow()
+                    screen = Screen.Editor(null, null, null, false)
+                } else {
+                    selectedAddPath = choice
+                    addSongStep = 1
+                }
             },
             onStep2BChoice = { source ->
-                selectedAddSongSource = source
-                addSongStep = 2
+                if (source == "search") {
+                    resetAddSongFlow()
+                    screen = Screen.Browser(
+                        initialUrl = DEFAULT_BROWSER_URL,
+                        allowSaveToEditor = true,
+                        editSongId = null,
+                        returnSongId = null
+                    )
+                } else {
+                    selectedAddOnlineSource = source
+                    addSongStep = 1
+                }
             },
-            onTitleChange = { tempAddSongTitle = it },
-            onArtistChange = { tempAddSongArtist = it },
-            onKeyChange = { tempAddSongKey = it },
             onUrlChange = { tempAddSongUrl = it },
-            onTextChange = { tempAddSongText = it },
-            onCreateBlank = {
-                val newSong = Song()
-                newSong.title = tempAddSongTitle.ifBlank { "Untitled" }
-                newSong.artist = tempAddSongArtist
-                newSong.key = tempAddSongKey
-                upsertSong(newSong, null)
-                showAddSongFlow = false
-                addSongStep = 0
-                selectedAddPath = ""
-                tempAddSongTitle = ""
-                tempAddSongArtist = ""
-                tempAddSongKey = ""
-                tempAddSongUrl = ""
-                tempAddSongText = ""
-                selectedAddSongSource = ""
-            },
-            onCreateWithVoiceNote = {
-                val newSong = Song()
-                newSong.title = tempAddSongTitle.ifBlank { "Untitled" }
-                newSong.artist = tempAddSongArtist
-                newSong.key = tempAddSongKey
-                upsertSong(newSong, null)
-                requestOrStartRecording(newSong.id)
-                showAddSongFlow = false
-                addSongStep = 0
-                selectedAddPath = ""
-                tempAddSongTitle = ""
-                tempAddSongArtist = ""
-                tempAddSongKey = ""
-                tempAddSongUrl = ""
-                tempAddSongText = ""
-                selectedAddSongSource = ""
-            },
             onImportFromUrl = {
-                val newSong = Song()
-                newSong.sourceUrl = tempAddSongUrl
-                upsertSong(newSong, null)
-                screen = Screen.Detail(newSong.id)
-                openExternalUrl(normalizeUrl(tempAddSongUrl))
-                showAddSongFlow = false
-                addSongStep = 0
-                selectedAddPath = ""
-                tempAddSongTitle = ""
-                tempAddSongArtist = ""
-                tempAddSongKey = ""
-                tempAddSongUrl = ""
-                tempAddSongText = ""
-                selectedAddSongSource = ""
-            },
-            onImportFromText = {
-                val newSong = Song()
-                newSong.body = tempAddSongText
-                upsertSong(newSong, null)
-                screen = Screen.Detail(newSong.id)
-                showAddSongFlow = false
-                addSongStep = 0
-                selectedAddPath = ""
-                tempAddSongTitle = ""
-                tempAddSongArtist = ""
-                tempAddSongKey = ""
-                tempAddSongUrl = ""
-                tempAddSongText = ""
-                selectedAddSongSource = ""
+                val url = normalizeUrl(tempAddSongUrl.trim())
+                resetAddSongFlow()
+                screen = Screen.Browser(
+                    initialUrl = url,
+                    allowSaveToEditor = true,
+                    editSongId = null,
+                    returnSongId = null
+                )
             }
         )
     }
@@ -607,14 +782,20 @@ private fun SongbookApp(
 private fun LibraryScreen(
     songs: List<Song>,
     onOpenSong: (String) -> Unit,
+    onToggleFavorite: (String) -> Unit,
     onNewSong: () -> Unit,
     onSettings: () -> Unit
 ) {
     var search by rememberSaveable { mutableStateOf("") }
-    val filteredSongs = remember(songs, search) {
+    var selectedTab by rememberSaveable { mutableStateOf("all") }
+    val filteredSongs = remember(songs, search, selectedTab) {
         val needle = search.trim().lowercase(Locale.US)
         songs.filter { song ->
-            needle.isBlank() || buildString {
+            val matchesTab = when (selectedTab) {
+                "favorites" -> song.isFavorite
+                else -> true
+            }
+            val matchesSearch = needle.isBlank() || buildString {
                 append(song.title)
                 append(' ')
                 append(song.artist)
@@ -625,6 +806,7 @@ private fun LibraryScreen(
                 append(' ')
                 append(song.sourceUrl)
             }.lowercase(Locale.US).contains(needle)
+            matchesTab && matchesSearch
         }.sortedBy { it.title.lowercase(Locale.US) }
     }
 
@@ -650,8 +832,6 @@ private fun LibraryScreen(
                     ),
                     modifier = Modifier.weight(1f)
                 )
-                CircleIconButton(Icons.Outlined.BookmarkBorder, onClick = onSettings)
-                Spacer(modifier = Modifier.width(10.dp))
                 CircleIconButton(Icons.Outlined.Settings, onClick = onSettings)
             }
 
@@ -664,9 +844,9 @@ private fun LibraryScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TabPill("All", active = true, onClick = {})
-                TabPill("Favorites", active = false, onClick = {})
-                TabPill("Setlists", active = false, onClick = {})
+                TabPill("All", active = selectedTab == "all", onClick = { selectedTab = "all" })
+                TabPill("Favorites", active = selectedTab == "favorites", onClick = { selectedTab = "favorites" })
+                TabPill("Setlists", active = selectedTab == "setlists", onClick = { selectedTab = "setlists" })
             }
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -692,10 +872,18 @@ private fun LibraryScreen(
                     modifier = Modifier.weight(1f)
                 ) {
                     item {
-                        FeaturedSongCard(song = filteredSongs.first(), onClick = { onOpenSong(filteredSongs.first().id) })
+                        FeaturedSongCard(
+                            song = filteredSongs.first(),
+                            onClick = { onOpenSong(filteredSongs.first().id) },
+                            onToggleFavorite = { onToggleFavorite(filteredSongs.first().id) }
+                        )
                     }
                     items(filteredSongs.drop(1), key = { it.id }) { song ->
-                        CompactSongRow(song = song, onClick = { onOpenSong(song.id) })
+                        CompactSongRow(
+                            song = song,
+                            onClick = { onOpenSong(song.id) },
+                            onToggleFavorite = { onToggleFavorite(song.id) }
+                        )
                     }
                 }
             }
@@ -728,6 +916,9 @@ private fun DetailScreen(
     onOpenSource: () -> Unit,
     onCreateVersion: () -> Unit,
     onSwitchVersion: (SongVersion) -> Unit,
+    isDocsSyncing: Boolean,
+    onSyncGoogleDoc: () -> Unit,
+    onOpenGoogleDoc: () -> Unit,
     isRecording: Boolean,
     playingPath: String?,
     onToggleRecording: () -> Unit,
@@ -783,7 +974,7 @@ private fun DetailScreen(
                     fontSize = 14.sp
                 )
             }
-            CircleIconButton(Icons.Outlined.BookmarkBorder, onClick = {}, size = 44.dp)
+            CircleIconButton(Icons.Outlined.StarBorder, onClick = {}, size = 44.dp)
             Spacer(modifier = Modifier.width(4.dp))
             CircleIconButton(Icons.Outlined.MoreVert, onClick = onEdit, size = 44.dp)
         }
@@ -802,6 +993,46 @@ private fun DetailScreen(
             OutlinedControlButton(song.notes.ifBlank { "3/4" })
             OutlinedControlButton("Capo -")
             OutlinedControlButton("Main")
+        }
+
+        if (!song.isOnlineSource) {
+            Spacer(modifier = Modifier.height(12.dp))
+            DarkPanel(
+                modifier = Modifier.padding(horizontal = 12.dp),
+                padding = 12.dp
+            ) {
+                Text("GOOGLE DOCS", color = AppColors.SoftGold, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (song.googleDocId.isBlank()) "This song is only saved on this device." else "Linked to Google Docs",
+                    color = AppColors.Ink,
+                    fontSize = 14.sp
+                )
+                if (song.lastSyncedAt > 0L) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Last synced ${formatTime(song.lastSyncedAt)}", color = AppColors.Muted, fontSize = 12.sp)
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    AccentButton(
+                        text = when {
+                            isDocsSyncing && song.googleDocId.isBlank() -> "Creating..."
+                            isDocsSyncing -> "Updating..."
+                            song.googleDocId.isBlank() -> "Create doc"
+                            else -> "Update doc"
+                        },
+                        onClick = onSyncGoogleDoc,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (song.googleDocUrl.isNotBlank()) {
+                        SecondaryButton(
+                            text = "Open doc",
+                            onClick = onOpenGoogleDoc,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -920,30 +1151,16 @@ private fun DetailScreen(
                             }
                         }
                         1 -> {
-                            // Voice Notes
-                            DarkPanel {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Voice notes", color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                    Text("Latest: ${song.recordings.size}", color = AppColors.Muted, fontSize = 13.sp)
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .border(1.dp, AppColors.Line, RoundedCornerShape(12.dp))
-                                        .clickable { selectedTab = 1 }
-                                        .padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text("Voice notes", color = AppColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                        Text("Latest: ${song.recordings.size}", color = AppColors.Muted, fontSize = 12.sp)
-                                    }
-                                    Text(">", color = AppColors.Muted, fontSize = 18.sp)
-                                }
-                            }
+                            VoiceNotesSection(
+                                song = song,
+                                isRecording = isRecording,
+                                playingPath = playingPath,
+                                onToggleRecording = onToggleRecording,
+                                onPlayLatest = onPlayLatest,
+                                onTogglePlayback = onTogglePlayback,
+                                onRenameRecording = onRenameRecording,
+                                onDeleteRecording = onDeleteRecording
+                            )
                         }
                     }
                 }
@@ -990,25 +1207,13 @@ private fun DetailScreen(
 private fun AddSongFlowModal(
     step: Int,
     selectedPath: String,
-    tempTitle: String,
-    tempArtist: String,
-    tempKey: String,
-    tempUrl: String,
-    tempText: String,
     selectedSource: String,
+    tempUrl: String,
     onDismiss: () -> Unit,
     onStep1Choice: (String) -> Unit,
-    onStep2AChoice: (String) -> Unit,
     onStep2BChoice: (String) -> Unit,
-    onTitleChange: (String) -> Unit,
-    onArtistChange: (String) -> Unit,
-    onKeyChange: (String) -> Unit,
     onUrlChange: (String) -> Unit,
-    onTextChange: (String) -> Unit,
-    onCreateBlank: () -> Unit,
-    onCreateWithVoiceNote: () -> Unit,
-    onImportFromUrl: () -> Unit,
-    onImportFromText: () -> Unit
+    onImportFromUrl: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1018,36 +1223,15 @@ private fun AddSongFlowModal(
         text = {
             when (step) {
                 0 -> AddSongStep1(onStep1Choice)
-                1 -> {
-                    if (selectedPath == "own") {
-                        AddSongStep2A(
-                            selectedSource = selectedSource,
-                            tempTitle = tempTitle,
-                            tempArtist = tempArtist,
-                            tempKey = tempKey,
-                            onStep2AChoice = onStep2AChoice,
-                            onTitleChange = onTitleChange,
-                            onArtistChange = onArtistChange,
-                            onKeyChange = onKeyChange,
-                            onCreateBlank = onCreateBlank,
-                            onCreateWithVoiceNote = onCreateWithVoiceNote,
-                            onBack = onDismiss
-                        )
-                    } else {
-                        AddSongStep2B(
-                            selectedSource = selectedSource,
-                            tempUrl = tempUrl,
-                            tempText = tempText,
-                            onStep2BChoice = onStep2BChoice,
-                            onUrlChange = onUrlChange,
-                            onTextChange = onTextChange,
-                            onImportFromUrl = onImportFromUrl,
-                            onImportFromText = onImportFromText,
-                            onBack = onDismiss
-                        )
-                    }
-                }
-                2 -> {} // Handled by callbacks
+                1 -> AddSongStep2B(
+                    selectedSource = if (selectedPath == "online") selectedSource else "",
+                    tempUrl = tempUrl,
+                    onStep2BChoice = onStep2BChoice,
+                    onUrlChange = onUrlChange,
+                    onImportFromUrl = onImportFromUrl,
+                    onBack = onDismiss
+                )
+                2 -> {}
             }
         },
         confirmButton = {},
@@ -1081,7 +1265,7 @@ private fun AddSongStep1(onChoice: (String) -> Unit) {
 
         AddSongChoiceButton(
             text = "Find online",
-            subtitle = "Import from URL or paste lyrics",
+            subtitle = "Browse in-app or open a pasted link",
             onClick = { onChoice("online") }
         )
     }
@@ -1119,113 +1303,12 @@ private fun AddSongChoiceButton(
 }
 
 @Composable
-private fun AddSongStep2A(
-    selectedSource: String,
-    tempTitle: String,
-    tempArtist: String,
-    tempKey: String,
-    onStep2AChoice: (String) -> Unit,
-    onTitleChange: (String) -> Unit,
-    onArtistChange: (String) -> Unit,
-    onKeyChange: (String) -> Unit,
-    onCreateBlank: () -> Unit,
-    onCreateWithVoiceNote: () -> Unit,
-    onBack: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        if (selectedSource.isEmpty()) {
-            Text(
-                text = "Start your song",
-                color = AppColors.Ink,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            AddSongSourceButton(
-                text = "Blank song",
-                subtitle = "Start with an empty canvas",
-                onClick = { onStep2AChoice("blank") }
-            )
-
-            AddSongSourceButton(
-                text = "Voice note first",
-                subtitle = "Record your melody or idea first",
-                onClick = { onStep2AChoice("voice") }
-            )
-        } else {
-            Text(
-                text = if (selectedSource == "blank") "Create blank song" else "Start with voice note",
-                color = AppColors.Ink,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            UnderlineField(
-                label = "Title",
-                value = tempTitle,
-                onValueChange = onTitleChange
-            )
-
-            UnderlineField(
-                label = "Artist",
-                value = tempArtist,
-                onValueChange = onArtistChange
-            )
-
-            UnderlineField(
-                label = "Key",
-                value = tempKey,
-                onValueChange = onKeyChange
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                TextButton(
-                    onClick = { onStep2AChoice("") },
-                    colors = ButtonDefaults.textButtonColors(contentColor = AppColors.Muted),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Back")
-                }
-
-                Button(
-                    onClick = if (selectedSource == "blank") onCreateBlank else onCreateWithVoiceNote,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AppColors.Accent,
-                        contentColor = AppColors.Ink
-                    ),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(if (selectedSource == "blank") "Create" else "Start recording")
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun AddSongStep2B(
     selectedSource: String,
     tempUrl: String,
-    tempText: String,
     onStep2BChoice: (String) -> Unit,
     onUrlChange: (String) -> Unit,
-    onTextChange: (String) -> Unit,
     onImportFromUrl: () -> Unit,
-    onImportFromText: () -> Unit,
     onBack: () -> Unit
 ) {
     Column(
@@ -1245,7 +1328,7 @@ private fun AddSongStep2B(
 
             AddSongSourceButton(
                 text = "Search online",
-                subtitle = "Browse and search song databases",
+                subtitle = "Browse in the built-in browser",
                 onClick = { onStep2BChoice("search") }
             )
 
@@ -1254,18 +1337,10 @@ private fun AddSongStep2B(
                 subtitle = "Import from a song sharing site",
                 onClick = { onStep2BChoice("url") }
             )
-
-            AddSongSourceButton(
-                text = "Paste lyrics",
-                subtitle = "Paste lyrics or chords directly",
-                onClick = { onStep2BChoice("text") }
-            )
         } else {
             Text(
                 text = when (selectedSource) {
-                    "search" -> "Search songs"
                     "url" -> "Paste song link"
-                    "text" -> "Paste lyrics or chords"
                     else -> "Import song"
                 },
                 color = AppColors.Ink,
@@ -1305,70 +1380,7 @@ private fun AddSongStep2B(
                             ),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text("Import")
-                        }
-                    }
-                }
-                "text" -> {
-                    Text(
-                        text = "Paste lyrics or chords below",
-                        color = AppColors.Muted,
-                        fontSize = 12.sp
-                    )
-
-                    LyricsEditor(
-                        value = TextFieldValue(tempText),
-                        onValueChange = { onTextChange(it.text) },
-                        monospace = true
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        TextButton(
-                            onClick = { onStep2BChoice("") },
-                            colors = ButtonDefaults.textButtonColors(contentColor = AppColors.Muted),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Back")
-                        }
-
-                        Button(
-                            onClick = onImportFromText,
-                            enabled = tempText.isNotBlank(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = AppColors.Accent,
-                                contentColor = AppColors.Ink
-                            ),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Import")
-                        }
-                    }
-                }
-                "search" -> {
-                    Text(
-                        text = "Search feature coming soon. For now, you can:",
-                        color = AppColors.Muted,
-                        fontSize = 13.sp
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        TextButton(
-                            onClick = { onStep2BChoice("") },
-                            colors = ButtonDefaults.textButtonColors(contentColor = AppColors.Muted),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Back")
+                            Text("Open")
                         }
                     }
                 }
@@ -1403,6 +1415,173 @@ private fun AddSongSourceButton(
                 text = subtitle,
                 color = AppColors.Muted,
                 fontSize = 12.sp
+            )
+        }
+    }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun BrowserScreen(
+    initialUrl: String,
+    allowSaveToEditor: Boolean,
+    onEditSong: (() -> Unit)?,
+    onBack: () -> Unit,
+    onSaveToEditor: (String, String) -> Unit
+) {
+    var requestedUrl by rememberSaveable(initialUrl) {
+        mutableStateOf(normalizeUrl(initialUrl.ifBlank { DEFAULT_BROWSER_URL }))
+    }
+    var addressText by rememberSaveable(initialUrl) { mutableStateOf(requestedUrl) }
+    var currentUrl by rememberSaveable(initialUrl) { mutableStateOf(requestedUrl) }
+    var pageTitle by rememberSaveable { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
+
+    fun goBackOrExit() {
+        val browser = webView
+        if (browser != null && browser.canGoBack()) {
+            browser.goBack()
+        } else {
+            onBack()
+        }
+    }
+
+    BackHandler(onBack = ::goBackOrExit)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webView?.destroy()
+            webView = null
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 18.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = ::goBackOrExit) {
+                Text("Back", color = AppColors.Accent, fontSize = 16.sp)
+            }
+            Text(
+                text = "Find song online",
+                color = AppColors.Ink,
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold,
+                fontSize = 24.sp,
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center
+            )
+            if (allowSaveToEditor) {
+                TextButton(
+                    onClick = { onSaveToEditor(normalizeUrl(currentUrl.ifBlank { addressText }), pageTitle.ifBlank { titleFromSourceUrl(currentUrl.ifBlank { addressText }) }) }
+                ) {
+                    Text("Save", color = AppColors.Accent, fontSize = 16.sp)
+                }
+            } else {
+                Spacer(modifier = Modifier.width(52.dp))
+            }
+        }
+
+        if (allowSaveToEditor) {
+            Text(
+                text = "Browse first, then save this page into a new song.",
+                color = AppColors.SoftGold,
+                fontSize = 13.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+        } else {
+            Text(
+                text = pageTitle.ifBlank { currentUrl },
+                color = AppColors.SoftGold,
+                fontSize = 13.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        UnderlineField(
+            label = "Web address",
+            value = addressText,
+            onValueChange = { addressText = it },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            if (allowSaveToEditor) {
+                SecondaryButton(
+                    text = if (isLoading) "Loading..." else "Go",
+                    onClick = {
+                        val nextUrl = normalizeUrl(addressText.trim()).ifBlank { DEFAULT_BROWSER_URL }
+                        requestedUrl = nextUrl
+                        currentUrl = nextUrl
+                        addressText = nextUrl
+                        isLoading = true
+                        webView?.loadUrl(nextUrl)
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                SecondaryButton(
+                    text = "Edit song",
+                    onClick = { onEditSong?.invoke() },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            if (allowSaveToEditor) {
+                AccentButton(
+                    text = "Use this page",
+                    onClick = { onSaveToEditor(normalizeUrl(currentUrl.ifBlank { addressText }), pageTitle.ifBlank { titleFromSourceUrl(currentUrl.ifBlank { addressText }) }) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .border(1.dp, AppColors.Line, RoundedCornerShape(16.dp))
+                .background(Color.White)
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { context ->
+                    WebView(context).apply {
+                        webView = this
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onReceivedTitle(view: WebView?, title: String?) {
+                                pageTitle = title.orEmpty()
+                            }
+                        }
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                val loadedUrl = normalizeUrl(url.orEmpty())
+                                currentUrl = loadedUrl
+                                addressText = loadedUrl
+                                isLoading = false
+                            }
+                        }
+                        loadUrl(requestedUrl)
+                    }
+                },
+                update = { view ->
+                    if (requestedUrl.isNotBlank() && requestedUrl != view.url) {
+                        view.loadUrl(requestedUrl)
+                    }
+                }
             )
         }
     }
@@ -1482,13 +1661,15 @@ private fun EditorScreen(
     key: String,
     baseSong: Song?,
     initialSource: String?,
+    initialTitle: String?,
+    initialOnline: Boolean,
     repository: LocalSongRepository,
     showToast: (String) -> Unit,
     onCancel: () -> Unit,
     onSave: (Song) -> Unit,
     onDelete: (String) -> Unit
 ) {
-    val initialSong = remember(key, baseSong, initialSource) {
+    val initialSong = remember(key, baseSong, initialSource, initialTitle, initialOnline) {
         when {
             baseSong != null -> deepCopySong(baseSong)
             repository.hasDraft() -> repository.loadDraftSong() ?: Song()
@@ -1497,9 +1678,16 @@ private fun EditorScreen(
             if (baseSong == null && !initialSource.isNullOrBlank()) {
                 sourceUrl = initialSource
             }
+            if (baseSong == null && initialOnline) {
+                isOnlineSource = true
+            }
+            if (title.isBlank()) {
+                title = initialTitle?.takeIf { it.isNotBlank() } ?: titleFromSourceUrl(sourceUrl)
+            }
         }
     }
 
+    val isOnlineSong = baseSong?.isOnlineSource == true || (baseSong == null && initialOnline) || initialSong.isOnlineSource
     var title by rememberSaveable(key) { mutableStateOf(initialSong.title) }
     var artist by rememberSaveable(key) { mutableStateOf(initialSong.artist) }
     var songKey by rememberSaveable(key) { mutableStateOf(initialSong.key) }
@@ -1524,8 +1712,19 @@ private fun EditorScreen(
         draft.key = songKey.trim()
         draft.notes = notes.trim()
         draft.sourceUrl = normalizeUrl(sourceUrl.trim())
+        draft.isOnlineSource = isOnlineSong && draft.sourceUrl.isNotBlank()
         draft.body = body.text
         draft.chordLinesJson = chordLinesJson
+        if (draft.isOnlineSource) {
+            draft.artist = ""
+            draft.key = ""
+            draft.notes = ""
+            draft.body = ""
+            draft.chordLinesJson = ""
+            if (draft.title.isBlank()) {
+                draft.title = titleFromSourceUrl(draft.sourceUrl)
+            }
+        }
         return draft
     }
 
@@ -1574,10 +1773,10 @@ private fun EditorScreen(
             )
             TextButton(
                 onClick = {
-                    if (title.isBlank()) {
+                    val song = draftSong()
+                    if (song.title.isBlank()) {
                         return@TextButton
                     }
-                    val song = draftSong()
                     onSave(song)
                 }
             ) {
@@ -1598,91 +1797,97 @@ private fun EditorScreen(
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
         ) {
-            UnderlineField("Title", title, { title = it })
-            UnderlineField("Artist", artist, { artist = it })
+            if (isOnlineSong) {
+                UnderlineField("Title", title, { title = it })
+                Spacer(modifier = Modifier.height(18.dp))
+                UnderlineField("Source Link", sourceUrl, { sourceUrl = it }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done))
+            } else {
+                UnderlineField("Title", title, { title = it })
+                UnderlineField("Artist", artist, { artist = it })
 
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                SelectField("Key", songKey, { songKey = it }, Modifier.weight(1f))
-                SelectField("Capo", capo, { capo = it }, Modifier.weight(1f))
-                SelectField("Tuning", tuning, { tuning = it }, Modifier.weight(1f))
-            }
-
-            Spacer(modifier = Modifier.height(18.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Lyrics & Chords", color = AppColors.SoftGold, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text("Monospace", color = AppColors.SoftGold, fontSize = 12.sp)
-                Spacer(modifier = Modifier.width(10.dp))
-                TabPill(if (monospace) "On" else "Off", active = monospace, onClick = { monospace = !monospace })
-            }
-
-            if (!chordModeActive) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                    listOf("G", "C", "D", "Em", "Am").forEach { chord ->
-                        SecondaryButton(chord, onClick = { body = insertChord(body, chord) })
-                    }
-                    AccentButton("+ Chord", onClick = { body = insertChord(body, "Cmaj7") })
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    SelectField("Key", songKey, { songKey = it }, Modifier.weight(1f))
+                    SelectField("Capo", capo, { capo = it }, Modifier.weight(1f))
+                    SelectField("Tuning", tuning, { tuning = it }, Modifier.weight(1f))
                 }
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
-            SecondaryButton(
-                text = if (chordModeActive) "Done Editing Chords" else "Edit Chords",
-                onClick = {
-                    if (chordModeActive) {
-                        syncBodyFromChordLines(chordLines)
-                        chordModeActive = false
-                    } else {
-                        val cleared = clearChordAnchorsIfBodyChanged(body.text, chordLinesJson)
-                        chordLinesJson = cleared
-                        chordLines = loadChordLines(body.text, cleared)
-                        val firstLine = firstEditableLine(chordLines)
-                        if (firstLine < 0) {
-                            showToast("Add lyrics before adding chords.")
+                Spacer(modifier = Modifier.height(18.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text("Lyrics & Chords", color = AppColors.SoftGold, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("Monospace", color = AppColors.SoftGold, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    TabPill(if (monospace) "On" else "Off", active = monospace, onClick = { monospace = !monospace })
+                }
+
+                if (!chordModeActive) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                        listOf("G", "C", "D", "Em", "Am").forEach { chord ->
+                            SecondaryButton(chord, onClick = { body = insertChord(body, chord) })
+                        }
+                        AccentButton("+ Chord", onClick = { body = insertChord(body, "Cmaj7") })
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                SecondaryButton(
+                    text = if (chordModeActive) "Done Editing Chords" else "Edit Chords",
+                    onClick = {
+                        if (chordModeActive) {
+                            syncBodyFromChordLines(chordLines)
+                            chordModeActive = false
                         } else {
-                            selectedLineIndex = firstLine
-                            selectedWordStart = null
-                            chordModeActive = true
+                            val cleared = clearChordAnchorsIfBodyChanged(body.text, chordLinesJson)
+                            chordLinesJson = cleared
+                            chordLines = loadChordLines(body.text, cleared)
+                            val firstLine = firstEditableLine(chordLines)
+                            if (firstLine < 0) {
+                                showToast("Add lyrics before adding chords.")
+                            } else {
+                                selectedLineIndex = firstLine
+                                selectedWordStart = null
+                                chordModeActive = true
+                            }
                         }
                     }
+                )
+
+                if (chordModeActive) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ChordModePanel(
+                        onDone = {
+                            syncBodyFromChordLines(chordLines)
+                            chordModeActive = false
+                        }
+                    )
                 }
-            )
 
-            if (chordModeActive) {
                 Spacer(modifier = Modifier.height(12.dp))
-                ChordModePanel(
-                    onDone = {
-                        syncBodyFromChordLines(chordLines)
-                        chordModeActive = false
-                    }
-                )
-            }
+                if (chordModeActive) {
+                    LyricsChordModeEditor(
+                        lines = chordLines,
+                        onChooseWord = { lineIndex, wordStart ->
+                            selectedLineIndex = lineIndex
+                            selectedWordStart = wordStart
+                            showChordPicker = true
+                        }
+                    )
+                } else {
+                    LyricsEditor(
+                        value = body,
+                        onValueChange = {
+                            body = it
+                            chordLinesJson = clearChordAnchorsIfBodyChanged(body.text, chordLinesJson)
+                        },
+                        monospace = monospace
+                    )
+                }
 
-            Spacer(modifier = Modifier.height(12.dp))
-            if (chordModeActive) {
-                LyricsChordModeEditor(
-                    lines = chordLines,
-                    onChooseWord = { lineIndex, wordStart ->
-                        selectedLineIndex = lineIndex
-                        selectedWordStart = wordStart
-                        showChordPicker = true
-                    }
-                )
-            } else {
-                LyricsEditor(
-                    value = body,
-                    onValueChange = {
-                        body = it
-                        chordLinesJson = clearChordAnchorsIfBodyChanged(body.text, chordLinesJson)
-                    },
-                    monospace = monospace
-                )
+                Spacer(modifier = Modifier.height(18.dp))
+                UnderlineField("Notes", notes, { notes = it }, singleLine = false)
+                UnderlineField("Source Link", sourceUrl, { sourceUrl = it }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done))
             }
-
-            Spacer(modifier = Modifier.height(18.dp))
-            UnderlineField("Notes", notes, { notes = it }, singleLine = false)
-            UnderlineField("Source Link", sourceUrl, { sourceUrl = it }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done))
 
             if (baseSong != null) {
                 Spacer(modifier = Modifier.height(20.dp))
@@ -1889,8 +2094,10 @@ private fun ChordPickerDialog(
 private fun SettingsScreen(
     songCount: Int,
     draftAvailable: Boolean,
+    isDriveSyncing: Boolean,
     onBack: () -> Unit,
     onNewSong: () -> Unit,
+    onSyncGoogleDrive: () -> Unit,
     onClearDraft: () -> Unit
 ) {
     Column(
@@ -1918,7 +2125,14 @@ private fun SettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
             Text("$songCount songs saved on this device.", color = AppColors.Ink, fontSize = 15.sp)
             Spacer(modifier = Modifier.height(12.dp))
-            AccentButton("Add new song", onClick = onNewSong)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                AccentButton("Add new song", onClick = onNewSong, modifier = Modifier.weight(1f))
+                SecondaryButton(
+                    if (isDriveSyncing) "Syncing..." else "Sync Google Drive",
+                    onClick = onSyncGoogleDrive,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -1950,7 +2164,7 @@ private fun SettingsScreen(
 }
 
 @Composable
-private fun FeaturedSongCard(song: Song, onClick: () -> Unit) {
+private fun FeaturedSongCard(song: Song, onClick: () -> Unit, onToggleFavorite: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1970,9 +2184,20 @@ private fun FeaturedSongCard(song: Song, onClick: () -> Unit) {
             }
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.align(Alignment.CenterVertically)) {
-                Text(song.title, color = AppColors.Ink, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(if (song.artist.isBlank()) "Unknown artist" else song.artist, color = AppColors.Muted, fontSize = 14.sp)
+                Row(verticalAlignment = Alignment.Top) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(song.title, color = AppColors.Ink, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(if (song.artist.isBlank()) "Unknown artist" else song.artist, color = AppColors.Muted, fontSize = 14.sp)
+                    }
+                    IconButton(onClick = onToggleFavorite) {
+                        Icon(
+                            imageVector = if (song.isFavorite) Icons.Outlined.Star else Icons.Outlined.StarBorder,
+                            contentDescription = if (song.isFavorite) "Remove from favorites" else "Add to favorites",
+                            tint = if (song.isFavorite) AppColors.Accent else AppColors.Muted
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(12.dp))
                 MetaChip("Key ${song.key.ifBlank { "-" }}", accent = false)
             }
@@ -1981,7 +2206,7 @@ private fun FeaturedSongCard(song: Song, onClick: () -> Unit) {
 }
 
 @Composable
-private fun CompactSongRow(song: Song, onClick: () -> Unit) {
+private fun CompactSongRow(song: Song, onClick: () -> Unit, onToggleFavorite: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1991,7 +2216,13 @@ private fun CompactSongRow(song: Song, onClick: () -> Unit) {
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Outlined.BookmarkBorder, contentDescription = null, tint = AppColors.Muted)
+        IconButton(onClick = onToggleFavorite) {
+            Icon(
+                imageVector = if (song.isFavorite) Icons.Outlined.Star else Icons.Outlined.StarBorder,
+                contentDescription = if (song.isFavorite) "Remove from favorites" else "Add to favorites",
+                tint = if (song.isFavorite) AppColors.Accent else AppColors.Muted
+            )
+        }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(song.title, color = AppColors.Ink, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -2214,6 +2445,7 @@ private fun UnderlineField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
+    enabled: Boolean = true,
     singleLine: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default.copy(
         capitalization = KeyboardCapitalization.Sentences,
@@ -2229,6 +2461,7 @@ private fun UnderlineField(
             textStyle = TextStyle(color = AppColors.Ink, fontSize = 16.sp),
             keyboardOptions = keyboardOptions,
             singleLine = singleLine,
+            enabled = enabled,
             modifier = Modifier.fillMaxWidth(),
             decorationBox = { inner ->
                 Column {
@@ -2386,11 +2619,108 @@ private fun seedSongsIfNeeded(repository: LocalSongRepository): List<Song> {
 
 private fun deepCopySong(song: Song): Song = SongJsonMapper.fromJson(SongJsonMapper.toJson(song))
 
+private fun launchDocSync(
+    song: Song,
+    accessToken: String,
+    onUpdateSong: (Song) -> Unit,
+    onFinish: () -> Unit,
+    showToast: (String) -> Unit
+) {
+    kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) {
+        try {
+            val syncResult = withContext(Dispatchers.IO) {
+                GoogleDocsSyncService.createOrUpdate(song, accessToken)
+            }
+            val updated = deepCopySong(song)
+            updated.googleDocId = syncResult.documentId
+            updated.googleDocUrl = syncResult.documentUrl
+            updated.lastKnownDocRevisionId = syncResult.revisionId.orEmpty()
+            updated.lastSyncedBodyHash = updated.body.hashCode().toString()
+            updated.lastSyncedAt = System.currentTimeMillis()
+            onUpdateSong(updated)
+            showToast(if (song.googleDocId.isBlank()) "Google Doc created." else "Google Doc updated.")
+        } catch (e: Exception) {
+            showToast("Could not save to Google Docs.")
+        } finally {
+            onFinish()
+        }
+    }
+}
+
+private fun launchFolderSync(
+    accessToken: String,
+    existingSongs: List<Song>,
+    onMergeSongs: (List<Song>) -> Unit,
+    onFinish: () -> Unit,
+    showToast: (String) -> Unit
+) {
+    kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) {
+        try {
+            val syncResult = withContext(Dispatchers.IO) {
+                GoogleDocsSyncService.syncFolder(accessToken)
+            }
+            val merged = mergeImportedSongs(existingSongs, syncResult.importedSongs)
+            onMergeSongs(merged)
+            showToast(
+                if (syncResult.importedSongs.isEmpty()) {
+                    "Prestissimo Songbook folder is ready."
+                } else {
+                    "Imported ${syncResult.importedSongs.size} songs from Google Drive."
+                }
+            )
+        } catch (e: Exception) {
+            showToast("Could not sync Prestissimo Songbook folder.")
+        } finally {
+            onFinish()
+        }
+    }
+}
+
+private fun mergeImportedSongs(existingSongs: List<Song>, importedSongs: List<Song>): List<Song> {
+    if (importedSongs.isEmpty()) {
+        return existingSongs
+    }
+    val byDocId = existingSongs.associateBy { it.googleDocId }
+    val untouched = existingSongs.filter { song ->
+        song.googleDocId.isBlank() || importedSongs.none { it.googleDocId == song.googleDocId }
+    }.toMutableList()
+    importedSongs.forEach { imported ->
+        val existing = byDocId[imported.googleDocId]
+        if (existing == null) {
+            untouched += imported
+        } else {
+            val merged = deepCopySong(existing)
+            merged.title = imported.title
+            merged.artist = imported.artist
+            merged.key = imported.key
+            merged.body = imported.body
+            merged.notes = imported.notes
+            merged.chordLinesJson = imported.chordLinesJson
+            merged.googleDocId = imported.googleDocId
+            merged.googleDocUrl = imported.googleDocUrl
+            merged.lastKnownDocRevisionId = imported.lastKnownDocRevisionId
+            merged.lastSyncedBodyHash = imported.lastSyncedBodyHash
+            merged.lastSyncedAt = imported.lastSyncedAt
+            untouched += merged
+        }
+    }
+    return untouched.sortedBy { it.title.lowercase(Locale.US) }
+}
+
 private fun normalizeUrl(text: String): String {
     if (text.isBlank()) {
         return ""
     }
     return if (text.startsWith("http://") || text.startsWith("https://")) text else "https://$text"
+}
+
+private fun titleFromSourceUrl(sourceUrl: String): String {
+    val normalized = normalizeUrl(sourceUrl)
+    if (normalized.isBlank()) {
+        return "Untitled"
+    }
+    val host = Uri.parse(normalized).host.orEmpty().removePrefix("www.")
+    return host.ifBlank { "Untitled" }
 }
 
 private fun hasDraftContent(song: Song): Boolean {
@@ -2688,7 +3018,18 @@ private sealed interface Screen {
     data object Library : Screen
     data object Settings : Screen
     data class Detail(val songId: String) : Screen
-    data class Editor(val songId: String?, val initialSource: String?) : Screen
+    data class Editor(
+        val songId: String?,
+        val initialSource: String?,
+        val initialTitle: String?,
+        val initialOnline: Boolean
+    ) : Screen
+    data class Browser(
+        val initialUrl: String,
+        val allowSaveToEditor: Boolean,
+        val editSongId: String?,
+        val returnSongId: String?
+    ) : Screen
 }
 
 private data class RecordingTarget(
@@ -2708,6 +3049,8 @@ private object AppColors {
     val Accent = Color(0xFFE66A50)
     val Danger = Color(0xFFE06A5F)
 }
+
+private const val DEFAULT_BROWSER_URL = "https://www.google.com/"
 
 @Composable
 private fun SongbookTheme(content: @Composable () -> Unit) {

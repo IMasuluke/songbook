@@ -13,6 +13,8 @@ public class Song {
     public String chordLinesJson = "";
     public String notes = "";
     public String sourceUrl = "";
+    public boolean isOnlineSource = false;
+    public boolean isFavorite = false;
     public String googleDocId = "";
     public String googleDocUrl = "";
     public String lastKnownDocRevisionId = "";

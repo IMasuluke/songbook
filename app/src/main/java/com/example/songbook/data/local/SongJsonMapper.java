@@ -24,6 +24,8 @@ public final class SongJsonMapper {
         song.chordLinesJson = object.optString("chordLinesJson");
         song.notes = object.optString("notes");
         song.sourceUrl = object.optString("sourceUrl");
+        song.isOnlineSource = object.optBoolean("isOnlineSource", false);
+        song.isFavorite = object.optBoolean("isFavorite", false);
         song.googleDocId = object.optString("googleDocId");
         song.googleDocUrl = object.optString("googleDocUrl");
         song.lastKnownDocRevisionId = object.optString("lastKnownDocRevisionId");
@@ -65,6 +67,8 @@ public final class SongJsonMapper {
             object.put("chordLinesJson", song.chordLinesJson);
             object.put("notes", song.notes);
             object.put("sourceUrl", song.sourceUrl);
+            object.put("isOnlineSource", song.isOnlineSource);
+            object.put("isFavorite", song.isFavorite);
             object.put("googleDocId", song.googleDocId);
             object.put("googleDocUrl", song.googleDocUrl);
             object.put("lastKnownDocRevisionId", song.lastKnownDocRevisionId);
