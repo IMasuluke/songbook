@@ -7,6 +7,9 @@ public class SongVersion {
     public String name = "Main";
     public String parentId = "";
     public String key = "";
+    public String timeSignature = "";
+    public String capo = "";
+    public String tuning = "";
     public String body = "";
     public String chordLinesJson = "";
     public String notes = "";
@@ -18,6 +21,9 @@ public class SongVersion {
         version.name = name == null || name.trim().isEmpty() ? "Version" : name.trim();
         version.parentId = parentId == null ? "" : parentId;
         version.key = song.key;
+        version.timeSignature = song.timeSignature;
+        version.capo = song.capo;
+        version.tuning = song.tuning;
         version.body = song.body;
         version.chordLinesJson = song.chordLinesJson;
         version.notes = song.notes;

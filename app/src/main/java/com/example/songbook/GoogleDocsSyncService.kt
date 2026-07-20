@@ -184,11 +184,26 @@ object GoogleDocsSyncService {
         while (lines.isNotEmpty() && lines.first().isBlank()) {
             lines.removeAt(0)
         }
-        if (lines.isNotEmpty() && !lines.first().startsWith("Key:") && !lines.first().startsWith("Notes:")) {
+        if (lines.isNotEmpty()
+            && !lines.first().startsWith("Key:")
+            && !lines.first().startsWith("Time Signature:")
+            && !lines.first().startsWith("Capo:")
+            && !lines.first().startsWith("Tuning:")
+            && !lines.first().startsWith("Notes:")
+        ) {
             song.artist = lines.removeAt(0).trim()
         }
         if (lines.isNotEmpty() && lines.first().startsWith("Key:")) {
             song.key = lines.removeAt(0).removePrefix("Key:").trim()
+        }
+        if (lines.isNotEmpty() && lines.first().startsWith("Time Signature:")) {
+            song.timeSignature = lines.removeAt(0).removePrefix("Time Signature:").trim()
+        }
+        if (lines.isNotEmpty() && lines.first().startsWith("Capo:")) {
+            song.capo = lines.removeAt(0).removePrefix("Capo:").trim()
+        }
+        if (lines.isNotEmpty() && lines.first().startsWith("Tuning:")) {
+            song.tuning = lines.removeAt(0).removePrefix("Tuning:").trim()
         }
         if (lines.isNotEmpty() && lines.first().startsWith("Notes:")) {
             song.notes = lines.removeAt(0).removePrefix("Notes:").trim()
@@ -301,6 +316,15 @@ object GoogleDocsSyncService {
             }
             if (song.key.isNotBlank()) {
                 appendLine("Key: ${song.key}")
+            }
+            if (song.timeSignature.isNotBlank()) {
+                appendLine("Time Signature: ${song.timeSignature}")
+            }
+            if (song.capo.isNotBlank()) {
+                appendLine("Capo: ${song.capo}")
+            }
+            if (song.tuning.isNotBlank()) {
+                appendLine("Tuning: ${song.tuning}")
             }
             if (song.notes.isNotBlank()) {
                 appendLine("Notes: ${song.notes}")

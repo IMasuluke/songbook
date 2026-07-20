@@ -22,6 +22,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +35,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,6 +43,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,11 +57,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoAwesomeMotion
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.outlined.TextFields
+import androidx.compose.material.icons.outlined.VerticalAlignTop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -87,6 +101,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -584,6 +599,7 @@ private fun SongbookApp(
                             persistSongs(songs.map { if (it.id == switched.id) switched else it })
                         },
                         isDocsSyncing = docsSyncingSongId == song.id,
+                        onSyncFromGoogle = { requestGoogleFolderSync(interactive = true) },
                         onSyncGoogleDoc = { requestGoogleDocSync(song.id) },
                         onOpenGoogleDoc = {
                             if (song.googleDocUrl.isNotBlank()) {
@@ -917,6 +933,7 @@ private fun DetailScreen(
     onCreateVersion: () -> Unit,
     onSwitchVersion: (SongVersion) -> Unit,
     isDocsSyncing: Boolean,
+    onSyncFromGoogle: () -> Unit,
     onSyncGoogleDoc: () -> Unit,
     onOpenGoogleDoc: () -> Unit,
     isRecording: Boolean,
@@ -928,22 +945,10 @@ private fun DetailScreen(
     onDeleteRecording: (Recording) -> Unit
 ) {
     val scrollState = rememberScrollState()
-    var autoScroll by rememberSaveable(song.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val activeVersion = remember(song.id, song.activeVersionId, song.versions.size) { versionManager.activeVersion(song) }
     var selectedTab by rememberSaveable { mutableStateOf(0) }
     var isBottomSheetExpanded by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(autoScroll, scrollState.maxValue) {
-        while (autoScroll) {
-            delay(120L)
-            val next = (scrollState.value + 16).coerceAtMost(scrollState.maxValue)
-            scrollState.scrollTo(next)
-            if (next >= scrollState.maxValue) {
-                autoScroll = false
-            }
-        }
-    }
 
     Column(
         modifier = Modifier
@@ -990,49 +995,9 @@ private fun DetailScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedControlButton("Key ${song.key.ifBlank { "-" }}")
-            OutlinedControlButton(song.notes.ifBlank { "3/4" })
-            OutlinedControlButton("Capo -")
-            OutlinedControlButton("Main")
-        }
-
-        if (!song.isOnlineSource) {
-            Spacer(modifier = Modifier.height(12.dp))
-            DarkPanel(
-                modifier = Modifier.padding(horizontal = 12.dp),
-                padding = 12.dp
-            ) {
-                Text("GOOGLE DOCS", color = AppColors.SoftGold, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = if (song.googleDocId.isBlank()) "This song is only saved on this device." else "Linked to Google Docs",
-                    color = AppColors.Ink,
-                    fontSize = 14.sp
-                )
-                if (song.lastSyncedAt > 0L) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Last synced ${formatTime(song.lastSyncedAt)}", color = AppColors.Muted, fontSize = 12.sp)
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    AccentButton(
-                        text = when {
-                            isDocsSyncing && song.googleDocId.isBlank() -> "Creating..."
-                            isDocsSyncing -> "Updating..."
-                            song.googleDocId.isBlank() -> "Create doc"
-                            else -> "Update doc"
-                        },
-                        onClick = onSyncGoogleDoc,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (song.googleDocUrl.isNotBlank()) {
-                        SecondaryButton(
-                            text = "Open doc",
-                            onClick = onOpenGoogleDoc,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
+            OutlinedControlButton(song.timeSignature.ifBlank { "Time -" })
+            OutlinedControlButton("Capo ${song.capo.ifBlank { "-" }}")
+            OutlinedControlButton(song.tuning.ifBlank { "Standard" })
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -1045,11 +1010,10 @@ private fun DetailScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ReaderControlSmall("-", onClick = { onReaderTextSizeChange((readerTextSize - 1f).coerceAtLeast(14f)) }, modifier = Modifier.weight(1f))
-            ReaderControlSmall("+", onClick = { onReaderTextSizeChange((readerTextSize + 1f).coerceAtMost(28f)) }, modifier = Modifier.weight(1f))
-            ReaderControlSmall("Aa", onClick = {}, modifier = Modifier.weight(1f))
-            ReaderControlToggle(isActive = autoScroll, onClick = { autoScroll = !autoScroll }, modifier = Modifier.weight(1f))
-            ReaderControlSmall("⬆", onClick = { scope.launch { scrollState.animateScrollTo(0) } }, modifier = Modifier.weight(1f))
+            ReaderGlyphButton(text = "-", contentDescription = "Decrease text size", onClick = { onReaderTextSizeChange((readerTextSize - 1f).coerceAtLeast(14f)) }, modifier = Modifier.weight(1f))
+            ReaderGlyphButton(text = "+", contentDescription = "Increase text size", onClick = { onReaderTextSizeChange((readerTextSize + 1f).coerceAtMost(28f)) }, modifier = Modifier.weight(1f))
+            ReaderIconButton(icon = Icons.Outlined.TextFields, contentDescription = "Text settings", onClick = {}, modifier = Modifier.weight(1f))
+            ReaderIconButton(icon = Icons.Outlined.VerticalAlignTop, contentDescription = "Scroll to top", onClick = { scope.launch { scrollState.animateScrollTo(0) } }, modifier = Modifier.weight(1f))
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -1081,6 +1045,25 @@ private fun DetailScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp)
+                    .pointerInput(selectedTab) {
+                        var totalDrag = 0f
+                        detectVerticalDragGestures(
+                            onVerticalDrag = { change, dragAmount ->
+                                if (dragAmount > 0f) {
+                                    totalDrag += dragAmount
+                                    if (totalDrag >= 72f) {
+                                        isBottomSheetExpanded = false
+                                        totalDrag = 0f
+                                    }
+                                } else {
+                                    totalDrag = 0f
+                                }
+                                change.consume()
+                            },
+                            onDragEnd = { totalDrag = 0f },
+                            onDragCancel = { totalDrag = 0f }
+                        )
+                    }
             ) {
                 // Tabs header with close button
                 Row(
@@ -1090,7 +1073,7 @@ private fun DetailScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
-                    TabItem("Versions", isSelected = selectedTab == 0, onClick = { selectedTab = 0 }, modifier = Modifier.weight(1f))
+                    TabItem("Google", isSelected = selectedTab == 0, onClick = { selectedTab = 0 }, modifier = Modifier.weight(1f))
                     Divider(color = AppColors.Line, modifier = Modifier
                         .width(1.dp)
                         .height(40.dp))
@@ -1125,28 +1108,56 @@ private fun DetailScreen(
                 ) {
                     when (selectedTab) {
                         0 -> {
-                            // Versions
                             DarkPanel {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Versions", color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                    Text("Latest: ${song.versions.size}", color = AppColors.Muted, fontSize = 13.sp)
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .border(1.dp, AppColors.Line, RoundedCornerShape(12.dp))
-                                        .clickable { selectedTab = 0 }
-                                        .padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text("Versions", color = AppColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                        Text("Latest: ${song.versions.size}", color = AppColors.Muted, fontSize = 12.sp)
+                                Text("GOOGLE DOCS", color = AppColors.SoftGold, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                if (song.isOnlineSource) {
+                                    Text(
+                                        "Google Docs sync is available for local songs only.",
+                                        color = AppColors.Muted,
+                                        fontSize = 14.sp
+                                    )
+                                } else {
+                                    Text(
+                                        text = if (song.googleDocId.isBlank()) "This song is only saved on this device." else "Linked to Google Docs",
+                                        color = AppColors.Ink,
+                                        fontSize = 14.sp
+                                    )
+                                    if (song.lastSyncedAt > 0L) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text("Last synced ${formatTime(song.lastSyncedAt)}", color = AppColors.Muted, fontSize = 12.sp)
                                     }
-                                    Text(">", color = AppColors.Muted, fontSize = 18.sp)
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                        SecondaryButton(
+                                            text = "Sync from Google",
+                                            onClick = onSyncFromGoogle,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        AccentButton(
+                                            text = when {
+                                                isDocsSyncing && song.googleDocId.isBlank() -> "Creating..."
+                                                isDocsSyncing -> "Syncing to Google..."
+                                                song.googleDocId.isBlank() -> "Sync to Google"
+                                                else -> "Sync to Google"
+                                            },
+                                            onClick = onSyncGoogleDoc,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                    if (song.googleDocUrl.isNotBlank()) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                            if (song.googleDocUrl.isNotBlank()) {
+                                                SecondaryButton(
+                                                    text = "Open doc",
+                                                    onClick = onOpenGoogleDoc,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                Spacer(modifier = Modifier.weight(1f))
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1173,7 +1184,7 @@ private fun DetailScreen(
                     .padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                TabItem("Versions", isSelected = false, onClick = { selectedTab = 0; isBottomSheetExpanded = true }, modifier = Modifier.weight(1f))
+                TabItem("Google", isSelected = false, onClick = { selectedTab = 0; isBottomSheetExpanded = true }, modifier = Modifier.weight(1f))
                 Divider(color = AppColors.Line, modifier = Modifier
                     .width(1.dp)
                     .height(40.dp))
@@ -1436,6 +1447,7 @@ private fun BrowserScreen(
     var currentUrl by rememberSaveable(initialUrl) { mutableStateOf(requestedUrl) }
     var pageTitle by rememberSaveable { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
+    var isExpanded by rememberSaveable { mutableStateOf(false) }
     var webView by remember { mutableStateOf<WebView?>(null) }
 
     fun goBackOrExit() {
@@ -1461,7 +1473,11 @@ private fun BrowserScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .imePadding()
+            .padding(
+                horizontal = if (isExpanded) 8.dp else 18.dp,
+                vertical = if (isExpanded) 6.dp else 10.dp
+            )
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1479,73 +1495,86 @@ private fun BrowserScreen(
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center
             )
-            if (allowSaveToEditor) {
-                TextButton(
-                    onClick = { onSaveToEditor(normalizeUrl(currentUrl.ifBlank { addressText }), pageTitle.ifBlank { titleFromSourceUrl(currentUrl.ifBlank { addressText }) }) }
-                ) {
-                    Text("Save", color = AppColors.Accent, fontSize = 16.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { isExpanded = !isExpanded }) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
+                        contentDescription = if (isExpanded) "Collapse browser" else "Expand browser",
+                        tint = AppColors.Accent
+                    )
                 }
-            } else {
-                Spacer(modifier = Modifier.width(52.dp))
+                if (allowSaveToEditor) {
+                    TextButton(
+                        onClick = { onSaveToEditor(normalizeUrl(currentUrl.ifBlank { addressText }), pageTitle.ifBlank { titleFromSourceUrl(currentUrl.ifBlank { addressText }) }) }
+                    ) {
+                        Text("Save", color = AppColors.Accent, fontSize = 16.sp)
+                    }
+                } else {
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
             }
         }
 
-        if (allowSaveToEditor) {
-            Text(
-                text = "Browse first, then save this page into a new song.",
-                color = AppColors.SoftGold,
-                fontSize = 13.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
+        if (!isExpanded) {
+            if (allowSaveToEditor) {
+                Text(
+                    text = "Browse first, then save this page into a new song.",
+                    color = AppColors.SoftGold,
+                    fontSize = 13.sp,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+            } else {
+                Text(
+                    text = pageTitle.ifBlank { currentUrl },
+                    color = AppColors.SoftGold,
+                    fontSize = 13.sp,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            UnderlineField(
+                label = "Web address",
+                value = addressText,
+                onValueChange = { addressText = it },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
             )
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                if (allowSaveToEditor) {
+                    SecondaryButton(
+                        text = if (isLoading) "Loading..." else "Go",
+                        onClick = {
+                            val nextUrl = normalizeUrl(addressText.trim()).ifBlank { DEFAULT_BROWSER_URL }
+                            requestedUrl = nextUrl
+                            currentUrl = nextUrl
+                            addressText = nextUrl
+                            isLoading = true
+                            webView?.loadUrl(nextUrl)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    SecondaryButton(
+                        text = "Edit song",
+                        onClick = { onEditSong?.invoke() },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (allowSaveToEditor) {
+                    AccentButton(
+                        text = "Use this page",
+                        onClick = { onSaveToEditor(normalizeUrl(currentUrl.ifBlank { addressText }), pageTitle.ifBlank { titleFromSourceUrl(currentUrl.ifBlank { addressText }) }) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
         } else {
-            Text(
-                text = pageTitle.ifBlank { currentUrl },
-                color = AppColors.SoftGold,
-                fontSize = 13.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
+            Spacer(modifier = Modifier.height(8.dp))
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        UnderlineField(
-            label = "Web address",
-            value = addressText,
-            onValueChange = { addressText = it },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            if (allowSaveToEditor) {
-                SecondaryButton(
-                    text = if (isLoading) "Loading..." else "Go",
-                    onClick = {
-                        val nextUrl = normalizeUrl(addressText.trim()).ifBlank { DEFAULT_BROWSER_URL }
-                        requestedUrl = nextUrl
-                        currentUrl = nextUrl
-                        addressText = nextUrl
-                        isLoading = true
-                        webView?.loadUrl(nextUrl)
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-            } else {
-                SecondaryButton(
-                    text = "Edit song",
-                    onClick = { onEditSong?.invoke() },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            if (allowSaveToEditor) {
-                AccentButton(
-                    text = "Use this page",
-                    onClick = { onSaveToEditor(normalizeUrl(currentUrl.ifBlank { addressText }), pageTitle.ifBlank { titleFromSourceUrl(currentUrl.ifBlank { addressText }) }) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -1588,6 +1617,7 @@ private fun BrowserScreen(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun VoiceNotesSection(
     song: Song,
     isRecording: Boolean,
@@ -1598,60 +1628,92 @@ private fun VoiceNotesSection(
     onRenameRecording: (Recording) -> Unit,
     onDeleteRecording: (Recording) -> Unit
 ) {
+    val recordings = remember(song.recordings) { song.recordings.asReversed() }
+    val pagerState = rememberPagerState(pageCount = { recordings.size + 1 })
+
     DarkPanel {
         Text("VOICE NOTES", color = AppColors.SoftGold, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            AccentButton(
-                text = if (isRecording) "Stop recording" else "Record voice",
-                onClick = onToggleRecording,
-                modifier = Modifier.weight(1f)
-            )
-            if (song.recordings.isNotEmpty()) {
-                SecondaryButton(
-                    text = "Play latest",
-                    onClick = onPlayLatest,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
+        Spacer(modifier = Modifier.height(8.dp))
 
-        if (song.recordings.isEmpty()) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Text("No recordings yet.", color = AppColors.Muted, fontSize = 14.sp)
-            return@DarkPanel
-        }
-
-        song.recordings.asReversed().forEachIndexed { reversedIndex, recording ->
-            val index = song.recordings.lastIndex - reversedIndex
-            Spacer(modifier = Modifier.height(12.dp))
-            DarkPanel(padding = 12.dp) {
-                Text(recordingDisplayName(recording, index), color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(formatTime(recording.createdAt), color = AppColors.Muted, fontSize = 12.sp)
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    SecondaryButton(
-                        text = if (playingPath == recording.path) "Stop" else "Play",
-                        onClick = { onTogglePlayback(recording) },
-                        modifier = Modifier.weight(1f)
+        HorizontalPager(
+            state = pagerState,
+            pageSpacing = 12.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) { page ->
+            if (page < recordings.size) {
+                val recording = recordings[page]
+                val index = song.recordings.indexOfFirst { it.path == recording.path }.takeIf { it >= 0 } ?: (song.recordings.size - page - 1)
+                DarkPanel(padding = 12.dp) {
+                    Text(recordingDisplayName(recording, index), color = AppColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(formatTime(recording.createdAt), color = AppColors.Muted, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        SmallActionIconButton(
+                            icon = if (playingPath == recording.path) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                            contentDescription = if (playingPath == recording.path) "Stop playback" else "Play recording",
+                            onClick = { onTogglePlayback(recording) }
+                        )
+                        SmallActionIconButton(
+                            icon = Icons.Outlined.Edit,
+                            contentDescription = "Rename recording",
+                            onClick = { onRenameRecording(recording) }
+                        )
+                        SmallActionIconButton(
+                            icon = Icons.Outlined.Delete,
+                            contentDescription = "Delete recording",
+                            onClick = { onDeleteRecording(recording) },
+                            tint = AppColors.Danger,
+                            borderColor = AppColors.Danger
+                        )
+                    }
+                }
+            } else {
+                DarkPanel(padding = 12.dp) {
+                    Text(
+                        text = if (isRecording) "Recording in progress" else "Add a new recording",
+                        color = AppColors.Ink,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    SecondaryButton(
-                        text = "Rename",
-                        onClick = { onRenameRecording(recording) },
-                        modifier = Modifier.weight(1f)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (isRecording) "Tap below to stop and save this take." else "Record another idea, melody, or lyric note for this song.",
+                        color = AppColors.Muted,
+                        fontSize = 12.sp
                     )
-                    OutlinedButton(
-                        onClick = { onDeleteRecording(recording) },
-                        modifier = Modifier.weight(1f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Danger),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.Danger)
-                    ) {
-                        Text("Delete")
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        SmallActionIconButton(
+                            icon = if (isRecording) Icons.Outlined.Pause else Icons.Outlined.Add,
+                            contentDescription = if (isRecording) "Stop recording" else "Record voice note",
+                            onClick = onToggleRecording,
+                            modifier = Modifier.weight(1f),
+                            tint = AppColors.Accent,
+                            borderColor = AppColors.Accent
+                        )
+                        if (recordings.isNotEmpty()) {
+                            SmallActionIconButton(
+                                icon = Icons.Outlined.PlayArrow,
+                                contentDescription = "Play latest recording",
+                                onClick = onPlayLatest,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "${(pagerState.currentPage + 1).coerceAtMost(recordings.size + 1)} / ${recordings.size + 1}",
+                color = AppColors.Muted,
+                fontSize = 12.sp
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Swipe", color = AppColors.Muted, fontSize = 12.sp)
         }
     }
 }
@@ -1692,11 +1754,12 @@ private fun EditorScreen(
     var artist by rememberSaveable(key) { mutableStateOf(initialSong.artist) }
     var songKey by rememberSaveable(key) { mutableStateOf(initialSong.key) }
     var notes by rememberSaveable(key) { mutableStateOf(initialSong.notes) }
+    var timeSignature by rememberSaveable(key) { mutableStateOf(initialSong.timeSignature) }
     var sourceUrl by rememberSaveable(key) { mutableStateOf(initialSong.sourceUrl) }
     var body by rememberSaveable(key, stateSaver = textFieldSaver()) { mutableStateOf(TextFieldValue(initialSong.body)) }
     var chordLinesJson by rememberSaveable(key) { mutableStateOf(initialSong.chordLinesJson) }
-    var capo by rememberSaveable(key) { mutableStateOf("-") }
-    var tuning by rememberSaveable(key) { mutableStateOf("Standard") }
+    var capo by rememberSaveable(key) { mutableStateOf(initialSong.capo) }
+    var tuning by rememberSaveable(key) { mutableStateOf(initialSong.tuning.ifBlank { "Standard" }) }
     var monospace by rememberSaveable(key) { mutableStateOf(true) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var chordModeActive by remember { mutableStateOf(false) }
@@ -1710,6 +1773,9 @@ private fun EditorScreen(
         draft.title = title.trim()
         draft.artist = artist.trim()
         draft.key = songKey.trim()
+        draft.timeSignature = timeSignature.trim()
+        draft.capo = capo.trim()
+        draft.tuning = tuning.trim()
         draft.notes = notes.trim()
         draft.sourceUrl = normalizeUrl(sourceUrl.trim())
         draft.isOnlineSource = isOnlineSong && draft.sourceUrl.isNotBlank()
@@ -1718,6 +1784,9 @@ private fun EditorScreen(
         if (draft.isOnlineSource) {
             draft.artist = ""
             draft.key = ""
+            draft.timeSignature = ""
+            draft.capo = ""
+            draft.tuning = ""
             draft.notes = ""
             draft.body = ""
             draft.chordLinesJson = ""
@@ -1737,7 +1806,7 @@ private fun EditorScreen(
         )
     }
 
-    LaunchedEffect(title, artist, songKey, notes, sourceUrl, body.text, key) {
+    LaunchedEffect(title, artist, songKey, timeSignature, capo, tuning, notes, sourceUrl, body.text, key) {
         if (baseSong == null) {
             val draft = draftSong()
             if (hasDraftContent(draft)) {
@@ -1808,6 +1877,10 @@ private fun EditorScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                     SelectField("Key", songKey, { songKey = it }, Modifier.weight(1f))
+                    SelectField("Time Sig", timeSignature, { timeSignature = it }, Modifier.weight(1f))
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                     SelectField("Capo", capo, { capo = it }, Modifier.weight(1f))
                     SelectField("Tuning", tuning, { tuning = it }, Modifier.weight(1f))
                 }
@@ -1818,16 +1891,6 @@ private fun EditorScreen(
                     Text("Monospace", color = AppColors.SoftGold, fontSize = 12.sp)
                     Spacer(modifier = Modifier.width(10.dp))
                     TabPill(if (monospace) "On" else "Off", active = monospace, onClick = { monospace = !monospace })
-                }
-
-                if (!chordModeActive) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                        listOf("G", "C", "D", "Em", "Am").forEach { chord ->
-                            SecondaryButton(chord, onClick = { body = insertChord(body, chord) })
-                        }
-                        AccentButton("+ Chord", onClick = { body = insertChord(body, "Cmaj7") })
-                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -1972,68 +2035,50 @@ private fun LyricsChordModeEditor(
     lines: List<EditorChordLine>,
     onChooseWord: (Int, Int) -> Unit
 ) {
-    val lineNumbers = remember(lines) {
-        (1..lines.size.coerceAtLeast(1)).joinToString("\n")
-    }
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 280.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(AppColors.Panel)
-            .border(1.dp, AppColors.Line, RoundedCornerShape(8.dp))
-            .padding(10.dp)
+            .padding(top = 4.dp)
     ) {
-        Text(
-            text = lineNumbers,
-            color = AppColors.Muted,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 15.sp,
-            lineHeight = 26.sp,
-            modifier = Modifier.padding(top = 4.dp, end = 10.dp)
-        )
-        Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            lines.forEachIndexed { lineIndex, line ->
-                val words = wordTokens(line.text)
-                if (words.isEmpty()) {
-                    Text(
-                        text = line.text.ifBlank { " " },
+        lines.forEachIndexed { lineIndex, line ->
+            val words = wordTokens(line.text)
+            if (words.isEmpty()) {
+                Text(
+                    text = line.text.ifBlank { " " },
+                    color = AppColors.Ink,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp
+                )
+            } else {
+                Text(
+                    text = renderedChordOnlyLine(line).ifBlank { " " },
+                    color = AppColors.Accent,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp
+                )
+                val lyricAnnotated = remember(line) { chordModeAnnotatedLine(line) }
+                ClickableText(
+                    text = lyricAnnotated,
+                    style = TextStyle(
                         color = AppColors.Ink,
-                        fontFamily = FontFamily.Monospace,
                         fontSize = 16.sp,
-                        lineHeight = 24.sp
-                    )
-                } else {
-                    Text(
-                        text = renderedChordOnlyLine(line).ifBlank { " " },
-                        color = AppColors.Accent,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 16.sp,
                         lineHeight = 24.sp
-                    )
-                    val lyricAnnotated = remember(line) { chordModeAnnotatedLine(line) }
-                    ClickableText(
-                        text = lyricAnnotated,
-                        style = TextStyle(
-                            color = AppColors.Ink,
-                            fontSize = 16.sp,
-                            fontFamily = FontFamily.Monospace,
-                            lineHeight = 24.sp
-                        ),
-                        onClick = { offset ->
-                            lyricAnnotated
-                                .getStringAnnotations(tag = "word_start", start = offset, end = offset)
-                                .firstOrNull()
-                                ?.item
-                                ?.toIntOrNull()
-                                ?.let { onChooseWord(lineIndex, it) }
-                        }
-                    )
-                }
+                    ),
+                    onClick = { offset ->
+                        lyricAnnotated
+                            .getStringAnnotations(tag = "word_start", start = offset, end = offset)
+                            .firstOrNull()
+                            ?.item
+                            ?.toIntOrNull()
+                            ?.let { onChooseWord(lineIndex, it) }
+                    }
+                )
             }
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
@@ -2355,15 +2400,6 @@ private fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifie
 }
 
 @Composable
-private fun ReaderControl(symbol: String, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
-        SecondaryButton(text = symbol, onClick = onClick)
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(label, color = AppColors.Muted, fontSize = 11.sp)
-    }
-}
-
-@Composable
 private fun OutlinedControlButton(text: String) {
     OutlinedButton(
         onClick = {},
@@ -2377,7 +2413,7 @@ private fun OutlinedControlButton(text: String) {
 }
 
 @Composable
-private fun ReaderControlSmall(symbol: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun ReaderGlyphButton(text: String, contentDescription: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     OutlinedButton(
         onClick = onClick,
         modifier = modifier.heightIn(min = 40.dp),
@@ -2385,28 +2421,52 @@ private fun ReaderControlSmall(symbol: String, onClick: () -> Unit, modifier: Mo
         border = androidx.compose.foundation.BorderStroke(1.5.dp, AppColors.Accent),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.Accent)
     ) {
-        Text(symbol, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
 @Composable
-private fun ReaderControlToggle(isActive: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun ReaderIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     OutlinedButton(
         onClick = onClick,
         modifier = modifier.heightIn(min = 40.dp),
         shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(1.5.dp, if (isActive) AppColors.Accent else AppColors.Line),
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = if (isActive) AppColors.Accent else AppColors.Muted,
-            containerColor = if (isActive) AppColors.Accent.copy(alpha = 0.15f) else Color.Transparent
-        )
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, AppColors.Accent),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.Accent)
     ) {
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(if (isActive) AppColors.Accent else Color.Transparent)
-                .border(1.5.dp, if (isActive) AppColors.Accent else AppColors.Line, CircleShape)
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(18.dp)
+        )
+    }
+}
+
+@Composable
+private fun SmallActionIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = AppColors.InkSoft,
+    borderColor: Color = AppColors.Line
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 40.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = tint)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(18.dp)
         )
     }
 }
@@ -2500,38 +2560,20 @@ private fun SelectField(label: String, value: String, onValueChange: (String) ->
 
 @Composable
 private fun LyricsEditor(value: TextFieldValue, onValueChange: (TextFieldValue) -> Unit, monospace: Boolean) {
-    val lineNumbers = remember(value.text) {
-        (1..value.text.lineSequence().count().coerceAtLeast(1)).joinToString("\n")
-    }
-    Row(
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 280.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(AppColors.Panel)
-            .border(1.dp, AppColors.Line, RoundedCornerShape(8.dp))
-            .padding(10.dp)
-    ) {
-        Text(
-            text = lineNumbers,
-            color = AppColors.Muted,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 15.sp,
-            lineHeight = 25.sp,
-            modifier = Modifier.padding(top = 2.dp, end = 10.dp)
+            .padding(top = 4.dp),
+        textStyle = TextStyle(
+            color = AppColors.Ink,
+            fontSize = 16.sp,
+            fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
+            lineHeight = 25.sp
         )
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth(),
-            textStyle = TextStyle(
-                color = AppColors.Ink,
-                fontSize = 16.sp,
-                fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
-                lineHeight = 25.sp
-            )
-        )
-    }
+    )
 }
 
 @Composable
@@ -2694,6 +2736,9 @@ private fun mergeImportedSongs(existingSongs: List<Song>, importedSongs: List<So
             merged.artist = imported.artist
             merged.key = imported.key
             merged.body = imported.body
+            merged.timeSignature = imported.timeSignature
+            merged.capo = imported.capo
+            merged.tuning = imported.tuning
             merged.notes = imported.notes
             merged.chordLinesJson = imported.chordLinesJson
             merged.googleDocId = imported.googleDocId

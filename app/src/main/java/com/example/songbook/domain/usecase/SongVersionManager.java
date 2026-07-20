@@ -52,6 +52,9 @@ public class SongVersionManager {
     public void saveActiveVersion(Song song) {
         SongVersion version = activeVersion(song);
         version.key = song.key;
+        version.timeSignature = song.timeSignature;
+        version.capo = song.capo;
+        version.tuning = song.tuning;
         version.body = song.body;
         version.chordLinesJson = song.chordLinesJson;
         version.notes = song.notes;
@@ -60,6 +63,9 @@ public class SongVersionManager {
 
     public void loadVersionIntoSong(Song song, SongVersion version) {
         song.key = version.key;
+        song.timeSignature = version.timeSignature;
+        song.capo = version.capo;
+        song.tuning = version.tuning;
         song.body = version.body;
         song.chordLinesJson = version.chordLinesJson;
         song.notes = version.notes;

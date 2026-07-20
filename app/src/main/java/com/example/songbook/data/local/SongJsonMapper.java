@@ -20,6 +20,9 @@ public final class SongJsonMapper {
         song.title = object.optString("title");
         song.artist = object.optString("artist");
         song.key = object.optString("key");
+        song.timeSignature = object.optString("timeSignature");
+        song.capo = object.optString("capo");
+        song.tuning = object.optString("tuning");
         song.body = object.optString("body");
         song.chordLinesJson = object.optString("chordLinesJson");
         song.notes = object.optString("notes");
@@ -63,6 +66,9 @@ public final class SongJsonMapper {
             object.put("title", song.title);
             object.put("artist", song.artist);
             object.put("key", song.key);
+            object.put("timeSignature", song.timeSignature);
+            object.put("capo", song.capo);
+            object.put("tuning", song.tuning);
             object.put("body", song.body);
             object.put("chordLinesJson", song.chordLinesJson);
             object.put("notes", song.notes);
@@ -106,6 +112,9 @@ public final class SongJsonMapper {
             song.activeVersionId = active.id;
         }
         song.key = active.key;
+        song.timeSignature = active.timeSignature;
+        song.capo = active.capo;
+        song.tuning = active.tuning;
         song.body = active.body;
         song.chordLinesJson = active.chordLinesJson;
         song.notes = active.notes;
@@ -117,6 +126,9 @@ public final class SongJsonMapper {
         version.name = object.optString("name", "Main");
         version.parentId = object.optString("parentId");
         version.key = object.optString("key");
+        version.timeSignature = object.optString("timeSignature");
+        version.capo = object.optString("capo");
+        version.tuning = object.optString("tuning");
         version.body = object.optString("body");
         version.chordLinesJson = object.optString("chordLinesJson");
         version.notes = object.optString("notes");
@@ -131,6 +143,9 @@ public final class SongJsonMapper {
                 .put("name", version.name)
                 .put("parentId", version.parentId)
                 .put("key", version.key)
+                .put("timeSignature", version.timeSignature)
+                .put("capo", version.capo)
+                .put("tuning", version.tuning)
                 .put("body", version.body)
                 .put("chordLinesJson", version.chordLinesJson)
                 .put("notes", version.notes)

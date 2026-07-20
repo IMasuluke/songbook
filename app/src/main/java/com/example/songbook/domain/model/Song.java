@@ -9,6 +9,9 @@ public class Song {
     public String title = "";
     public String artist = "";
     public String key = "";
+    public String timeSignature = "";
+    public String capo = "";
+    public String tuning = "";
     public String body = "";
     public String chordLinesJson = "";
     public String notes = "";
